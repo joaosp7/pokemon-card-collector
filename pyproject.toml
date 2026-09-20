@@ -1,0 +1,8 @@
+[project]
+name = "pokemon-db"
+version = "0.1.0"
+description = "Download Liga Pokémon collection card images"
+requires-python = ">=3.14"
+dependencies = [
+    "playwright>=1.63.0",
+]
