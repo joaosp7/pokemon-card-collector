@@ -9,7 +9,7 @@ This is meant to run on your machine. Images and ownership data stay on disk and
 Install the CLI once:
 
 ```bash
-uv tool install -e .
+uv tool install -e . --force
 uv run playwright install chromium
 ```
 

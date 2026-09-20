@@ -9,6 +9,13 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 import download_collection as dc  # noqa: E402
 
 
+class ProjectRootTests(unittest.TestCase):
+    def test_resolves_to_repo_with_pyproject(self):
+        root = dc.project_root()
+        self.assertTrue((root / "pyproject.toml").is_file())
+        self.assertTrue((root / "scripts" / "download_collection.py").is_file())
+
+
 class CollectionFolderNameTests(unittest.TestCase):
     def test_celebracao_de_30_anos(self):
         self.assertEqual(
@@ -77,6 +84,38 @@ class PlannedOutputTests(unittest.TestCase):
         self.assertEqual(slug, "Celebracao-de-30-Anos-30C")
         self.assertEqual(out_dir, dc.project_root() / "cards" / slug)
         self.assertEqual(card_count, 2)
+
+
+class SanitizeCollectionUrlTests(unittest.TestCase):
+    def test_strips_zsh_backslashes_from_liga_search_url(self):
+        self.assertEqual(
+            dc.sanitize_collection_url(
+                r"https://www.ligapokemon.com.br/\?view\=cards/search"
+                r"\&card\=edid\=804%20ed\=30C"
+            ),
+            "https://www.ligapokemon.com.br/?view=cards/search"
+            "&card=edid=804%20ed=30C",
+        )
+
+    def test_leaves_clean_url_unchanged(self):
+        url = (
+            "https://www.ligapokemon.com.br/?view=cards/search"
+            "&card=edid=804%20ed=30C"
+        )
+        self.assertEqual(dc.sanitize_collection_url(url), url)
+
+    def test_parse_args_returns_sanitized_url(self):
+        args = dc.parse_args(
+            [
+                r"https://www.ligapokemon.com.br/\?view\=cards/search"
+                r"\&card\=edid\=804%20ed\=30C"
+            ]
+        )
+        self.assertEqual(
+            args.url,
+            "https://www.ligapokemon.com.br/?view=cards/search"
+            "&card=edid=804%20ed=30C",
+        )
 
 
 class DryRunFlagTests(unittest.TestCase):

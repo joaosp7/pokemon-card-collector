@@ -39,8 +39,21 @@ EXTRACT_JS = """() => {
 }"""
 
 
+def sanitize_collection_url(url: str) -> str:
+    """Undo shell-escaped Liga URLs (zsh paste inserts \\ before ?, &, =)."""
+    return url.strip().replace("\\", "")
+
+
 def project_root() -> Path:
-    return Path(__file__).resolve().parent.parent
+    here = Path(__file__).resolve().parent
+    if here.name == "scripts" and (here.parent / "pyproject.toml").is_file():
+        return here.parent
+    cwd = Path.cwd().resolve()
+    for candidate in (cwd, *cwd.parents):
+        marker = candidate / "scripts" / "download_collection.py"
+        if (candidate / "pyproject.toml").is_file() and marker.is_file():
+            return candidate
+    return here.parent
 
 
 def collection_folder_name(title: str, sigla: str) -> str:
@@ -147,7 +160,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Download Liga Pokémon collection card images.",
     )
-    parser.add_argument("url", help="Liga Pokémon collection search URL")
+    parser.add_argument(
+        "url",
+        type=sanitize_collection_url,
+        help="Liga Pokémon collection search URL",
+    )
     parser.add_argument(
         "--headed",
         action="store_true",

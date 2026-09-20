@@ -1,6 +1,6 @@
 # Pokemon DB
 
-Local archive of Liga Pokémon collection images. The CLI `download-collection` is on PATH (`uv tool install -e .`).
+Local archive of Liga Pokémon collection images. The CLI `download-collection` is on PATH (`uv tool install -e . --force`). After CLI script changes, reinstall with `--force` so PATH picks up the new copy.
 
 ## How the downloader works
 
