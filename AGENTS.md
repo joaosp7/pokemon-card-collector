@@ -74,3 +74,17 @@ Do not hit Liga Pokémon from tests. Fixture the `cardsjson` shape and assert fo
 - Do not scrape `.card-item` or paginate the grid.
 - Do not commit files under `cards/` (gitignored).
 - Prefer small, testable helpers over extra flags or config files unless asked.
+
+## Web app
+
+Local Next.js binder for downloaded sets. Do not invent a download UI; the CLI still owns fetching.
+
+```bash
+cd web && npm run dev
+```
+
+Open http://localhost:3000.
+
+- Catalog is the `cards/` directory (filesystem). The app does not hit Liga Pokémon.
+- Ownership is SQLite at `web/data/collection.db`.
+- Do not commit `cards/` or the sqlite file (both gitignored).
