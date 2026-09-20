@@ -1,4 +1,4 @@
-import { listCards, listCollections } from "@/lib/catalog";
+import { collectionLogo, listCards, listCollections } from "@/lib/catalog";
 import { countOwned } from "@/lib/ownership";
 import { CollectionTile } from "@/app/components/collection-tile";
 
@@ -8,16 +8,14 @@ export default function Home() {
   const collections = listCollections()
     .map((collection) => {
       const cards = listCards(collection.slug);
-      const cover = cards[0];
-      if (!cover) {
+      if (cards.length === 0) {
         return null;
       }
       return {
         ...collection,
         owned: countOwned(collection.slug),
         total: cards.length,
-        coverFilename: cover.filename,
-        coverName: cover.name,
+        logoFilename: collectionLogo(collection.slug),
       };
     })
     .filter((tile) => tile !== null);

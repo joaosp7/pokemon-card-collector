@@ -1,7 +1,12 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
-import { cardsDir, isValidSlug } from "@/lib/catalog";
+import {
+  cardsDir,
+  imageContentType,
+  isAllowedImageFilename,
+  isValidSlug,
+} from "@/lib/catalog";
 
 export const runtime = "nodejs";
 
@@ -24,11 +29,7 @@ export async function GET(
     return new Response("Forbidden", { status: 403 });
   }
 
-  if (
-    path.basename(filename) !== filename ||
-    !filename.endsWith(".jpg") ||
-    filename.includes("..")
-  ) {
+  if (!isAllowedImageFilename(filename)) {
     return new Response("Forbidden", { status: 403 });
   }
 
@@ -51,6 +52,6 @@ export async function GET(
   ) as ReadableStream<Uint8Array>;
 
   return new Response(stream, {
-    headers: { "Content-Type": "image/jpeg" },
+    headers: { "Content-Type": imageContentType(filename) },
   });
 }

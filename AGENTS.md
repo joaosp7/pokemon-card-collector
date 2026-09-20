@@ -87,4 +87,5 @@ Open http://localhost:3000.
 
 - Catalog is the `cards/` directory (filesystem). The app does not hit Liga Pokémon.
 - Ownership is SQLite at `web/data/collection.db`.
+- Optional collection emblem: `cards/{slug}/logo.{png,webp,jpg,jpeg}`. Home tiles use the first existing non-empty file in that order (`png` → `webp` → `jpg` → `jpeg`). Missing logos show a typographic set-code badge, not the first card. `listCards` still only parses `NNN_Name.jpg`, so a `logo.jpg` is never a card.
 - Do not commit `cards/` or the sqlite file (both gitignored).

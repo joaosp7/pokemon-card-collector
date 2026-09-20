@@ -4,6 +4,13 @@ import path from "node:path";
 const SLUG_PATTERN = /^[A-Za-z0-9-]+$/;
 const CARD_FILENAME = /^(\d+)_(.+)\.jpg$/;
 
+export const LOGO_FILENAMES: readonly string[] = [
+  "logo.png",
+  "logo.webp",
+  "logo.jpg",
+  "logo.jpeg",
+];
+
 export type Collection = {
   slug: string;
   title: string;
@@ -64,6 +71,49 @@ function collectionDir(slug: string, root: string): string {
     throw new Error(`Invalid collection slug: ${slug}`);
   }
   return dir;
+}
+
+function isNonEmptyFile(filePath: string): boolean {
+  try {
+    const stat = fs.statSync(filePath);
+    return stat.isFile() && stat.size > 0;
+  } catch {
+    return false;
+  }
+}
+
+export function collectionLogo(
+  slug: string,
+  root = cardsDir(),
+): string | null {
+  const dir = collectionDir(slug, root);
+  for (const filename of LOGO_FILENAMES) {
+    if (isNonEmptyFile(path.join(dir, filename))) {
+      return filename;
+    }
+  }
+  return null;
+}
+
+export function isAllowedImageFilename(filename: string): boolean {
+  if (path.basename(filename) !== filename || filename.includes("..")) {
+    return false;
+  }
+  if (LOGO_FILENAMES.includes(filename)) {
+    return true;
+  }
+  return filename.endsWith(".jpg");
+}
+
+export function imageContentType(filename: string): string {
+  const ext = path.extname(filename).toLowerCase();
+  if (ext === ".png") {
+    return "image/png";
+  }
+  if (ext === ".webp") {
+    return "image/webp";
+  }
+  return "image/jpeg";
 }
 
 export function listCollections(root = cardsDir()): Collection[] {
