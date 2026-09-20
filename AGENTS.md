@@ -77,7 +77,7 @@ Do not hit Liga Pokémon from tests. Fixture the `cardsjson` shape and assert fo
 
 ## Web app
 
-Local Next.js binder for downloaded sets. Do not invent a download UI; the CLI still owns fetching.
+Local Next.js binder for downloaded sets. Home header can trigger `download-collection` via POST `/api/collections` (URL only; no scrape in Next.js). The CLI still owns fetching (Playwright + CDN). The app must not scrape `.card-item` or parse `cardsjson`.
 
 ```bash
 cd web && npm run dev
@@ -85,7 +85,7 @@ cd web && npm run dev
 
 Open http://localhost:3000.
 
-- Catalog is the `cards/` directory (filesystem). The app does not hit Liga Pokémon.
+- Catalog is the `cards/` directory (filesystem) after the CLI writes files.
 - Ownership is SQLite at `web/data/collection.db`.
 - Optional collection emblem: `cards/{slug}/logo.{png,webp,jpg,jpeg}`. Home tiles use the first existing non-empty file in that order (`png` → `webp` → `jpg` → `jpeg`). Missing logos show a typographic set-code badge, not the first card. `listCards` still only parses `NNN_Name.jpg`, so a `logo.jpg` is never a card.
 - Do not commit `cards/` or the sqlite file (both gitignored).

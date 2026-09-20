@@ -52,9 +52,10 @@ function EmptyBinder() {
         No sets yet
       </h1>
       <p className="mt-4 text-lg leading-relaxed text-ink-navy/85">
-        Run <code className="font-mono text-sleeve">download-collection</code>{" "}
-        to save a set under <code className="font-mono text-sleeve">cards/</code>,
-        then refresh.
+        Use Add Collection (top right) with a Liga Pokémon search URL, or run{" "}
+        <code className="font-mono text-sleeve">download-collection</code> in a
+        terminal. Sets save under{" "}
+        <code className="font-mono text-sleeve">cards/</code>.
       </p>
     </div>
   );

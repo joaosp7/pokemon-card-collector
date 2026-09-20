@@ -30,9 +30,9 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000. Home lists downloaded sets. Open a set to add or remove copies and filter All / Missing / Owned.
+Open http://localhost:3000. Home lists downloaded sets. Use Add Collection on the home header with a Liga search URL, or run the CLI in a terminal. Open a set to add or remove copies and filter All / Missing / Owned.
 
-Ownership is stored in `web/data/collection.db`. The app reads `cards/`; it does not download from Liga Pokémon.
+Ownership is stored in `web/data/collection.db`. The app reads `cards/` after the CLI writes files; it does not scrape Liga Pokémon.
 
 ## Tests
 
