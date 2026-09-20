@@ -26,10 +26,13 @@ const plex = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Binder",
-    template: "%s — Binder",
+    default: "Poke-Binder",
+    template: "%s — Poke-Binder",
   },
   description: "Local Pokémon TCG collection",
+  icons: {
+    icon: [{ url: "/master_ball.png?v=3", type: "image/png" }],
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

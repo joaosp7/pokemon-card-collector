@@ -14,7 +14,7 @@ export default function NotFound() {
           href="/"
           className="font-mono text-sm tracking-wide text-sleeve underline decoration-sleeve/50 underline-offset-4"
         >
-          Back to binder
+          Back to Poke-Binder
         </Link>
       </p>
     </main>

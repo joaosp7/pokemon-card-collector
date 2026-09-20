@@ -9,7 +9,7 @@ export function SiteHeader() {
           href="/"
           className="font-display text-xl tracking-tight text-ink-navy"
         >
-          Binder
+          Poke-Binder
         </Link>
         <AddCollectionDialog />
       </div>
