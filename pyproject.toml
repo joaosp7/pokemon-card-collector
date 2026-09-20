@@ -6,3 +6,16 @@ requires-python = ">=3.14"
 dependencies = [
     "playwright>=1.63.0",
 ]
+
+[project.scripts]
+download-collection = "download_collection:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+bypass-selection = true
+
+[tool.hatch.build.targets.wheel.force-include]
+"scripts/download_collection.py" = "download_collection.py"
