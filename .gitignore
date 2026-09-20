@@ -12,3 +12,9 @@ wheels/
 
 # Downloaded card images
 cards/
+
+# Next.js app
+web/.next/
+web/node_modules/
+web/data/*
+!web/data/.gitkeep
