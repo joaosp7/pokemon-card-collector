@@ -4,9 +4,24 @@ import type { Card } from "../lib/catalog";
 import { filterCards, parseFilter } from "../lib/filter";
 
 const cards: Card[] = [
-  { collectorNumber: "001", name: "Heracross", filename: "001_Heracross.jpg" },
-  { collectorNumber: "002", name: "Surskit", filename: "002_Surskit.jpg" },
-  { collectorNumber: "003", name: "Masquerain", filename: "003_Masquerain.jpg" },
+  {
+    collectorNumber: "001",
+    name: "Heracross",
+    energy: null,
+    filename: "001_Heracross.jpg",
+  },
+  {
+    collectorNumber: "002",
+    name: "Surskit",
+    energy: null,
+    filename: "002_Surskit.jpg",
+  },
+  {
+    collectorNumber: "003",
+    name: "Masquerain",
+    energy: null,
+    filename: "003_Masquerain.jpg",
+  },
 ];
 
 function numbers(list: Card[]): string[] {

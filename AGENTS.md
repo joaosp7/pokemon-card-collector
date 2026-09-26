@@ -1,6 +1,11 @@
 # Pokemon DB
 
-Local archive of Liga Pokémon collection images. The CLI `download-collection` is on PATH (`uv tool install -e . --force`). After CLI script changes, reinstall with `--force` so PATH picks up the new copy.
+Local archive of Liga Pokémon collection images. The CLI `download-collection` is on PATH (`uv tool install -e . --force`). The web app does not use that PATH copy; it runs `uv run download-collection`, which loads the package installed in `.venv`. After CLI script changes, refresh both:
+
+```bash
+uv tool install -e . --force
+uv sync --reinstall-package pokemon-db
+```
 
 ## How the downloader works
 
@@ -18,6 +23,7 @@ Each card includes:
 | `sSigla` | Set code (`30C`, `M6`) |
 | `sN` / `dN` | Collector number and padded sort key |
 | `nPT` / `nEN` | Portuguese name (may be empty) / English name (`Articuno (#018/128)`) |
+| `sC` | Card type code from Liga: one of `W R G L P F D M Y O C E`. Missing, empty, or any other value becomes our fallback `N` (not a Liga code) |
 | `sP` / `f_sP` | Front image path; optional back face |
 
 Image files are fetched from `https://repositorio.sbrauble.com` + `sP` (HTML stays behind Cloudflare; the image CDN does not need a browser). Names are HTML-unescaped. Cards are sorted by `dN` so the folder lists in collector-number order.
@@ -29,7 +35,7 @@ Output always goes under this repo’s `cards/` directory (resolved from the scr
 - `Celebração de 30 Anos` + `30C` → `cards/Celebracao-de-30-Anos-30C/`
 - `Storm Emeralda` + `M6` → `cards/Storm-Emeralda-M6/`
 
-**Files:** `{sN}_{Name}.jpg` (Portuguese name if present, otherwise English without the `(#…)` suffix). Dual-faced cards also write `{sN}_{Name}_back.jpg`. Existing non-empty files are skipped.
+**Files:** `{sN}_{code}_{Name}.jpg` where `code` is Liga `sC` when it is one of the 12 codes above, otherwise `N` (Portuguese name if present, otherwise English without the `(#…)` suffix). Dual-faced cards also write `{sN}_{code}_{Name}_back.jpg`. Existing non-empty files are skipped. On re-run, if the new path is absent and a legacy `{sN}_{Name}.jpg` (or `_back`) file exists and is non-empty, that file is renamed to the new path before download so it is skipped.
 
 ## CLI
 

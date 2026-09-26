@@ -81,6 +81,12 @@ export default async function CollectionPage({
                   <CardPocket missing={copies === 0}>
                     <p className="mb-1.5 font-mono text-[0.7rem] leading-tight text-ink-pocket">
                       #{card.collectorNumber} {card.name}
+                      {card.energy != null ? (
+                        <>
+                          <br />
+                          {card.energy}
+                        </>
+                      ) : null}
                     </p>
                     <PocketScan
                       src={cardImageUrl(slug, card.filename)}

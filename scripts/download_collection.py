@@ -19,6 +19,7 @@ USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
+CARD_TYPE_CODES = frozenset("WRGLPFDMYOCE")
 NEN_SUFFIX_RE = re.compile(r"\s*\(#.*\)\s*$")
 UNSAFE_FILENAME_RE = re.compile(r'[/\\:*?"<>|]')
 CATALOG_WAIT_JS = """() => {
@@ -74,11 +75,37 @@ def card_display_name(card: dict[str, Any]) -> str:
     return NEN_SUFFIX_RE.sub("", nen).strip()
 
 
+def card_type_code(card: dict[str, Any]) -> str:
+    """Map Liga `sC` to a filename type code; unknown/missing → `N`."""
+    code = str(card.get("sC") or "").strip()
+    return code if code in CARD_TYPE_CODES else "N"
+
+
 def card_filename(card: dict[str, Any], *, back: bool = False) -> str:
+    sn = str(card.get("sN") or "").strip() or "000"
+    code = card_type_code(card)
+    name = UNSAFE_FILENAME_RE.sub("_", card_display_name(card))
+    suffix = "_back" if back else ""
+    return f"{sn}_{code}_{name}{suffix}.jpg"
+
+
+def legacy_card_filename(card: dict[str, Any], *, back: bool = False) -> str:
+    """Pre-type-code filename `{sN}_{Name}.jpg` / `{sN}_{Name}_back.jpg`."""
     sn = str(card.get("sN") or "").strip() or "000"
     name = UNSAFE_FILENAME_RE.sub("_", card_display_name(card))
     suffix = "_back" if back else ""
     return f"{sn}_{name}{suffix}.jpg"
+
+
+def rename_legacy_if_needed(dest: Path, legacy: Path) -> bool:
+    """Rename a non-empty legacy file to dest when dest is absent. Returns True if renamed."""
+    if dest.exists():
+        return False
+    if not (legacy.is_file() and legacy.stat().st_size > 0):
+        return False
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    legacy.rename(dest)
+    return True
 
 
 def image_url(sP: str) -> str:
@@ -120,14 +147,21 @@ def download_to(url: str, dest: Path, *, retries: int = 3) -> str:
     return "failed"
 
 
-def card_image_jobs(card: dict[str, Any]) -> list[tuple[str, str]]:
-    jobs: list[tuple[str, str]] = []
+def card_image_jobs(card: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """Return (url, new_filename, legacy_filename) jobs for front and optional back."""
+    jobs: list[tuple[str, str, str]] = []
     sP = str(card.get("sP") or "").strip()
     if sP:
-        jobs.append((image_url(sP), card_filename(card)))
+        jobs.append((image_url(sP), card_filename(card), legacy_card_filename(card)))
     f_sP = str(card.get("f_sP") or "").strip()
     if f_sP:
-        jobs.append((image_url(f_sP), card_filename(card, back=True)))
+        jobs.append(
+            (
+                image_url(f_sP),
+                card_filename(card, back=True),
+                legacy_card_filename(card, back=True),
+            )
+        )
     return jobs
 
 
@@ -197,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    jobs: list[tuple[str, str]] = []
+    jobs: list[tuple[str, str, str]] = []
     for card in cards:
         jobs.extend(card_image_jobs(card))
 
@@ -205,8 +239,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Saving to {out_dir}")
 
     downloaded = skipped = failed = 0
-    for index, (url, filename) in enumerate(jobs, start=1):
+    for index, (url, filename, legacy_name) in enumerate(jobs, start=1):
         dest = out_dir / filename
+        rename_legacy_if_needed(dest, out_dir / legacy_name)
         status = download_to(url, dest)
         print(f"[{index}/{len(jobs)}] {status} {filename}")
         if status == "downloaded":

@@ -4,6 +4,22 @@ import path from "node:path";
 const SLUG_PATTERN = /^[A-Za-z0-9-]+$/;
 const CARD_FILENAME = /^(\d+)_(.+)\.jpg$/;
 
+export const ENERGY_LABELS: Readonly<Record<string, string>> = {
+  W: "Água",
+  R: "Fogo",
+  G: "Planta",
+  L: "Raios",
+  P: "Psíquica",
+  F: "Luta",
+  D: "Escuridão",
+  M: "Metal",
+  Y: "Fada",
+  O: "Dragão",
+  C: "Incolor",
+  E: "Energia",
+  N: "desconhecido",
+};
+
 export const LOGO_FILENAMES: readonly string[] = [
   "logo.png",
   "logo.webp",
@@ -20,6 +36,7 @@ export type Collection = {
 export type Card = {
   collectorNumber: string;
   name: string;
+  energy: string | null;
   filename: string;
 };
 
@@ -53,9 +70,26 @@ export function parseCardFilename(filename: string): Card | null {
   if (!match) {
     return null;
   }
+  const collectorNumber = match[1];
+  const remainder = match[2];
+  const sep = remainder.indexOf("_");
+  if (sep > 0) {
+    const code = remainder.slice(0, sep);
+    const name = remainder.slice(sep + 1);
+    const label = ENERGY_LABELS[code];
+    if (label !== undefined && name.length > 0) {
+      return {
+        collectorNumber,
+        name,
+        energy: label,
+        filename,
+      };
+    }
+  }
   return {
-    collectorNumber: match[1],
-    name: match[2],
+    collectorNumber,
+    name: remainder,
+    energy: null,
     filename,
   };
 }

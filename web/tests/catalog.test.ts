@@ -17,6 +17,7 @@ describe("parseCardFilename", () => {
     assert.deepEqual(parseCardFilename("018_Articuno.jpg"), {
       collectorNumber: "018",
       name: "Articuno",
+      energy: null,
       filename: "018_Articuno.jpg",
     });
   });
@@ -25,7 +26,53 @@ describe("parseCardFilename", () => {
     assert.deepEqual(parseCardFilename("009_Mega Golisopod ex.jpg"), {
       collectorNumber: "009",
       name: "Mega Golisopod ex",
+      energy: null,
       filename: "009_Mega Golisopod ex.jpg",
+    });
+  });
+
+  test("parses energy code and Portuguese label", () => {
+    assert.deepEqual(parseCardFilename("132_W_Articuno.jpg"), {
+      collectorNumber: "132",
+      name: "Articuno",
+      energy: "Água",
+      filename: "132_W_Articuno.jpg",
+    });
+  });
+
+  test("maps N to desconhecido", () => {
+    assert.deepEqual(parseCardFilename("132_N_Articuno.jpg"), {
+      collectorNumber: "132",
+      name: "Articuno",
+      energy: "desconhecido",
+      filename: "132_N_Articuno.jpg",
+    });
+  });
+
+  test("parses another known energy code", () => {
+    assert.deepEqual(parseCardFilename("007_G_Cherrim.jpg"), {
+      collectorNumber: "007",
+      name: "Cherrim",
+      energy: "Planta",
+      filename: "007_G_Cherrim.jpg",
+    });
+  });
+
+  test("treats Type_ Null as a legacy name, not a type", () => {
+    assert.deepEqual(parseCardFilename("050_Type_ Null.jpg"), {
+      collectorNumber: "050",
+      name: "Type_ Null",
+      energy: null,
+      filename: "050_Type_ Null.jpg",
+    });
+  });
+
+  test("does not treat a lone code segment as energy", () => {
+    assert.deepEqual(parseCardFilename("001_W.jpg"), {
+      collectorNumber: "001",
+      name: "W",
+      energy: null,
+      filename: "001_W.jpg",
     });
   });
 
