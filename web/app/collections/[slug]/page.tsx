@@ -61,8 +61,14 @@ export default async function CollectionPage({
         </p>
       </header>
 
-      <div className="mt-8">
+      <div className="mt-8 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
         <FilterTabs active={filter} />
+        <a
+          className="export-pdf"
+          href={`/api/collections/${collection.slug}/pdf?filter=${filter}`}
+        >
+          Export PDF
+        </a>
       </div>
 
       {visible.length === 0 ? (
