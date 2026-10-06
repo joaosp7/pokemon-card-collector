@@ -10,6 +10,9 @@ wheels/
 # Virtual environments
 .venv/
 
+# macOS
+.DS_Store
+
 # Downloaded card images
 cards/
 
