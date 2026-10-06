@@ -1,5 +1,5 @@
-import { collectionLogo, listCards, listCollections } from "@/lib/catalog";
-import { countOwned } from "@/lib/ownership";
+import { listCards, listCollections, storedLogoFilename } from "@/lib/catalog";
+import { countOwned } from "@/lib/ownership-db";
 import { CollectionTile } from "@/app/components/collection-tile";
 
 export const dynamic = "force-dynamic";
@@ -7,15 +7,17 @@ export const dynamic = "force-dynamic";
 export default function Home() {
   const collections = listCollections()
     .map((collection) => {
-      const cards = listCards(collection.slug);
+      const cards = listCards(collection.id);
       if (cards.length === 0) {
         return null;
       }
       return {
-        ...collection,
-        owned: countOwned(collection.slug),
+        slug: collection.slug,
+        title: collection.title,
+        setCode: collection.setCode,
+        owned: countOwned(collection.id),
         total: cards.length,
-        logoFilename: collectionLogo(collection.slug),
+        logoFilename: storedLogoFilename(collection.logoPath),
       };
     })
     .filter((tile) => tile !== null);
@@ -27,7 +29,7 @@ export default function Home() {
       ) : (
         <>
           <p className="font-mono text-[0.7rem] tracking-[0.12em] text-sleeve">
-            Sets on disk
+            Catalog
           </p>
           <h1 className="mt-2 font-display text-4xl tracking-tight text-ink-navy">
             Pick a set
@@ -54,8 +56,9 @@ function EmptyBinder() {
       <p className="mt-4 text-lg leading-relaxed text-ink-navy/85">
         Use Add Collection (top right) with a Liga Pokémon search URL, or run{" "}
         <code className="font-mono text-sleeve">download-collection</code> in a
-        terminal. Sets save under{" "}
-        <code className="font-mono text-sleeve">cards/</code>.
+        terminal. Card images save under{" "}
+        <code className="font-mono text-sleeve">cards/</code>. The set list is
+        stored in the catalog database.
       </p>
     </div>
   );

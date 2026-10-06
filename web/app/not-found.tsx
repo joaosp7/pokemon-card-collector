@@ -7,7 +7,7 @@ export default function NotFound() {
         Collection not found
       </h1>
       <p className="mt-4 max-w-lg text-lg leading-relaxed text-ink-navy/85">
-        That set is not on disk, or the folder has no cards.
+        That set is not in the catalog, or it has no cards.
       </p>
       <p className="mt-6">
         <Link

@@ -3,9 +3,9 @@ import { notFound } from "next/navigation";
 import { CardPocket, PocketScan, cardImageUrl } from "@/app/components/card-pocket";
 import { CopyControls } from "@/app/components/copy-controls";
 import { FilterTabs } from "@/app/components/filter-tabs";
-import { isValidSlug, listCards, parseSlug } from "@/lib/catalog";
+import { imageBasename, loadCollectionPage } from "@/lib/catalog";
 import { copiesOf, filterCards, parseFilter } from "@/lib/filter";
-import { countOwned, getOwnedMap } from "@/lib/ownership";
+import { countOwned, getOwnedMap } from "@/lib/ownership-db";
 
 export const dynamic = "force-dynamic";
 
@@ -18,11 +18,11 @@ export async function generateMetadata({
   params,
 }: CollectionPageProps): Promise<Metadata> {
   const { slug } = await params;
-  if (!isValidSlug(slug) || listCards(slug).length === 0) {
+  const page = loadCollectionPage(slug);
+  if (!page) {
     return { title: "Not found" };
   }
-  const { title, setCode } = parseSlug(slug);
-  return { title: `${title} · ${setCode}` };
+  return { title: `${page.collection.title} · ${page.collection.setCode}` };
 }
 
 export default async function CollectionPage({
@@ -32,18 +32,14 @@ export default async function CollectionPage({
   const { slug } = await params;
   const query = await searchParams;
 
-  if (!isValidSlug(slug)) {
+  const page = loadCollectionPage(slug);
+  if (!page) {
     notFound();
   }
 
-  const cards = listCards(slug);
-  if (cards.length === 0) {
-    notFound();
-  }
-
-  const { title, setCode } = parseSlug(slug);
-  const ownedMap = getOwnedMap(slug);
-  const ownedCount = countOwned(slug);
+  const { collection, cards } = page;
+  const ownedMap = getOwnedMap(collection.id);
+  const ownedCount = countOwned(collection.id);
   const filter = parseFilter(
     Array.isArray(query.filter) ? query.filter[0] : query.filter,
   );
@@ -54,10 +50,10 @@ export default async function CollectionPage({
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="font-mono text-xs tracking-[0.14em] text-stamp">
-            {setCode}
+            {collection.setCode}
           </p>
           <h1 className="mt-1 font-display text-4xl tracking-tight text-ink-navy">
-            {title}
+            {collection.title}
           </h1>
         </div>
         <p className="font-mono text-lg tabular-nums text-sleeve">
@@ -74,27 +70,34 @@ export default async function CollectionPage({
       ) : (
         <ul className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
           {visible.map((card) => {
-            const copies = copiesOf(ownedMap, card.collectorNumber);
+            const copies = copiesOf(ownedMap, card.setCardId);
             return (
-              <li key={card.filename}>
+              <li key={card.setCardId}>
                 <article>
                   <CardPocket missing={copies === 0}>
                     <p className="mb-1.5 font-mono text-[0.7rem] leading-tight text-ink-pocket">
-                      #{card.collectorNumber} {card.name}
-                      {card.energy != null ? (
+                      #{card.setCardId} {card.name}
+                      {card.element != null ? (
                         <>
                           <br />
-                          {card.energy}
+                          {card.element}
+                        </>
+                      ) : null}
+                      {card.rarityCode != null ? (
+                        <>
+                          <br />
+                          {card.rarityCode}
                         </>
                       ) : null}
                     </p>
                     <PocketScan
-                      src={cardImageUrl(slug, card.filename)}
+                      src={cardImageUrl(slug, imageBasename(card.imagePath))}
                       alt={card.name}
                     />
                     <CopyControls
                       slug={slug}
-                      collectorNumber={card.collectorNumber}
+                      setId={collection.id}
+                      setCardId={card.setCardId}
                       copies={copies}
                     />
                   </CardPocket>

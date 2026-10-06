@@ -4,9 +4,9 @@ export type CardFilter = "all" | "missing" | "owned";
 
 export function copiesOf(
   ownedMap: Map<string, number>,
-  collectorNumber: string,
+  setCardId: string,
 ): number {
-  return ownedMap.get(collectorNumber) ?? 0;
+  return ownedMap.get(setCardId) ?? 0;
 }
 
 export function parseFilter(value: unknown): CardFilter {
@@ -22,10 +22,10 @@ export function filterCards(
   filter: string,
 ): Card[] {
   if (filter === "missing") {
-    return cards.filter((card) => copiesOf(ownedMap, card.collectorNumber) === 0);
+    return cards.filter((card) => copiesOf(ownedMap, card.setCardId) === 0);
   }
   if (filter === "owned") {
-    return cards.filter((card) => copiesOf(ownedMap, card.collectorNumber) >= 1);
+    return cards.filter((card) => copiesOf(ownedMap, card.setCardId) >= 1);
   }
   return cards;
 }
