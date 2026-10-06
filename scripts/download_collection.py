@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import html
 import re
+import sqlite3
 import sys
 import time
 import unicodedata
@@ -148,21 +149,54 @@ def download_to(url: str, dest: Path, *, retries: int = 3) -> str:
 
 
 def card_image_jobs(card: dict[str, Any]) -> list[tuple[str, str, str]]:
-    """Return (url, new_filename, legacy_filename) jobs for front and optional back."""
-    jobs: list[tuple[str, str, str]] = []
+    """Return the front (url, new_filename, legacy_filename) job, if ``sP`` is set.
+
+    Liga ``f_sP`` is ignored. This never requests a back image or a ``_back.jpg`` file.
+    """
     sP = str(card.get("sP") or "").strip()
-    if sP:
-        jobs.append((image_url(sP), card_filename(card), legacy_card_filename(card)))
-    f_sP = str(card.get("f_sP") or "").strip()
-    if f_sP:
-        jobs.append(
-            (
-                image_url(f_sP),
-                card_filename(card, back=True),
-                legacy_card_filename(card, back=True),
-            )
-        )
-    return jobs
+    if not sP:
+        return []
+    return [(image_url(sP), card_filename(card), legacy_card_filename(card))]
+
+
+def collection_set_code(sigla: str, cards: list[dict[str, Any]]) -> str:
+    fallback = str(cards[0].get("sSigla") or "") if cards else ""
+    return str(sigla or fallback).strip()
+
+
+def set_title(title: str) -> str:
+    """Page title before the site suffix, accents preserved."""
+    return title.split("|", 1)[0].strip()
+
+
+def persist_downloaded_catalog(
+    title: str,
+    cards: list[dict[str, Any]],
+    set_code: str,
+    slug: str,
+    source_url: str,
+) -> int:
+    """Upsert the set and its front-image catalog rows. Does not download images.
+
+    ``logo_path`` is omitted so an existing logo stays in place. ``illustrator``
+    is left null. Image paths are the expected front files, even if a download failed.
+    """
+    import catalog_db
+    import catalog_fields
+
+    rows = [catalog_fields.normalize_card(card, slug=slug) for card in cards]
+    fields: dict[str, Any] = {
+        "set_code": set_code,
+        "name_pt": set_title(title) or None,
+        "slug": slug,
+        "source_url": source_url,
+        "card_count": len(cards),
+    }
+    conn = catalog_db.connect(project_root() / "data" / "catalog.db")
+    try:
+        return catalog_db.import_set(conn, fields, rows)
+    finally:
+        conn.close()
 
 
 def fetch_page_data(url: str, *, headed: bool = False) -> tuple[str, list[dict[str, Any]], str]:
@@ -185,7 +219,7 @@ def planned_output(
     title: str, catalog: list[dict[str, Any]], sigla: str
 ) -> tuple[str, Path, int]:
     cards = sort_cards(catalog)
-    slug = collection_folder_name(title, sigla or str(cards[0].get("sSigla") or ""))
+    slug = collection_folder_name(title, collection_set_code(sigla, cards))
     out_dir = project_root() / "cards" / slug
     return slug, out_dir, len(cards)
 
@@ -220,8 +254,9 @@ def main(argv: list[str] | None = None) -> int:
         print("No cards found in page catalog.", file=sys.stderr)
         return 1
 
-    slug, out_dir, card_count = planned_output(title, catalog, sigla)
     cards = sort_cards(catalog)
+    set_code = collection_set_code(sigla, cards)
+    slug, out_dir, card_count = planned_output(title, catalog, sigla)
 
     if args.dry_run:
         print(f"Collection: {slug}")
@@ -257,6 +292,17 @@ def main(argv: list[str] | None = None) -> int:
         f"Summary: discovered={discovered} downloaded={downloaded} "
         f"skipped={skipped} failed={failed}"
     )
+    try:
+        persist_downloaded_catalog(
+            title,
+            cards,
+            set_code,
+            slug,
+            args.url,
+        )
+    except (OSError, ValueError, sqlite3.Error) as exc:
+        print(exc, file=sys.stderr)
+        return 1
     return 1 if failed else 0
 
 

@@ -3,29 +3,27 @@ import { describe, test } from "node:test";
 import type { Card } from "../lib/catalog";
 import { filterCards, parseFilter } from "../lib/filter";
 
+function card(setCardId: string, name: string): Card {
+  return {
+    setId: 1,
+    setCardId,
+    name,
+    element: null,
+    rarityCode: null,
+    illustrator: null,
+    imagePath: `cards/Storm-Emeralda-M6/${setCardId}_${name}.jpg`,
+    sortKey: setCardId,
+  };
+}
+
 const cards: Card[] = [
-  {
-    collectorNumber: "001",
-    name: "Heracross",
-    energy: null,
-    filename: "001_Heracross.jpg",
-  },
-  {
-    collectorNumber: "002",
-    name: "Surskit",
-    energy: null,
-    filename: "002_Surskit.jpg",
-  },
-  {
-    collectorNumber: "003",
-    name: "Masquerain",
-    energy: null,
-    filename: "003_Masquerain.jpg",
-  },
+  card("001", "Heracross"),
+  card("002", "Surskit"),
+  card("003", "Masquerain"),
 ];
 
 function numbers(list: Card[]): string[] {
-  return list.map((card) => card.collectorNumber);
+  return list.map((card) => card.setCardId);
 }
 
 describe("parseFilter", () => {

@@ -1,8 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
+import type Database from "better-sqlite3";
+import {
+  findSetBySlug,
+  listSetCards,
+  listSets,
+  type Card as CatalogCard,
+  type Collection as CatalogSet,
+} from "./catalog-db";
+import { projectRelativePath, repoRoot } from "./data-paths";
 
 const SLUG_PATTERN = /^[A-Za-z0-9-]+$/;
-const CARD_FILENAME = /^(\d+)_(.+)\.jpg$/;
 
 export const ENERGY_LABELS: Readonly<Record<string, string>> = {
   W: "Água",
@@ -28,156 +36,255 @@ export const LOGO_FILENAMES: readonly string[] = [
 ];
 
 export type Collection = {
+  id: number;
   slug: string;
   title: string;
   setCode: string;
+  logoPath: string | null;
+  cardCount: number;
 };
 
 export type Card = {
-  collectorNumber: string;
+  setId: number;
+  setCardId: string;
   name: string;
-  energy: string | null;
-  filename: string;
+  element: string | null;
+  rarityCode: string | null;
+  illustrator: string | null;
+  imagePath: string;
+  sortKey: string;
 };
 
-export function cardsDir(): string {
-  return path.resolve(process.cwd(), "..", "cards");
-}
+export type CollectionPageData = {
+  collection: Collection;
+  cards: Card[];
+};
 
 export function isValidSlug(slug: string): boolean {
   return SLUG_PATTERN.test(slug);
 }
 
-export function assertValidSlug(slug: string): void {
-  if (!isValidSlug(slug)) {
-    throw new Error(`Invalid collection slug: ${slug}`);
+function displayName(namePt: string | null, nameEn: string | null): string {
+  const portuguese = namePt?.trim() ?? "";
+  if (portuguese.length > 0) {
+    return portuguese;
   }
+  return nameEn?.trim() ?? "";
 }
 
-export function parseSlug(slug: string): { title: string; setCode: string } {
-  assertValidSlug(slug);
-  const parts = slug.split("-");
-  const setCode = parts.pop() ?? "";
-  const title = parts.join(" ");
-  return { title, setCode };
+function elementLabel(code: string | null): string | null {
+  if (code == null || code.length === 0) {
+    return null;
+  }
+  return ENERGY_LABELS[code] ?? code;
 }
 
-export function parseCardFilename(filename: string): Card | null {
-  if (filename.endsWith("_back.jpg")) {
-    return null;
-  }
-  const match = CARD_FILENAME.exec(filename);
-  if (!match) {
-    return null;
-  }
-  const collectorNumber = match[1];
-  const remainder = match[2];
-  const sep = remainder.indexOf("_");
-  if (sep > 0) {
-    const code = remainder.slice(0, sep);
-    const name = remainder.slice(sep + 1);
-    const label = ENERGY_LABELS[code];
-    if (label !== undefined && name.length > 0) {
-      return {
-        collectorNumber,
-        name,
-        energy: label,
-        filename,
-      };
-    }
-  }
+function toCollection(set: CatalogSet): Collection {
   return {
-    collectorNumber,
-    name: remainder,
-    energy: null,
-    filename,
+    id: set.id,
+    slug: set.slug,
+    title: displayName(set.namePt, set.nameEn),
+    setCode: set.setCode,
+    logoPath: set.logoPath,
+    cardCount: set.cardCount,
   };
 }
 
-function collectionDir(slug: string, root: string): string {
-  assertValidSlug(slug);
-  const resolvedRoot = path.resolve(root);
-  const dir = path.resolve(resolvedRoot, slug);
-  const prefix = resolvedRoot.endsWith(path.sep)
-    ? resolvedRoot
-    : resolvedRoot + path.sep;
-  if (dir !== resolvedRoot && !dir.startsWith(prefix)) {
-    throw new Error(`Invalid collection slug: ${slug}`);
-  }
-  return dir;
+function toCard(card: CatalogCard): Card {
+  return {
+    setId: card.setId,
+    setCardId: card.setCardId,
+    name: displayName(card.namePt, card.nameEn),
+    element: elementLabel(card.elementCode),
+    rarityCode: card.rarityCode,
+    illustrator: card.illustrator,
+    imagePath: card.imagePath,
+    sortKey: card.sortKey,
+  };
 }
 
-function isNonEmptyFile(filePath: string): boolean {
-  try {
-    const stat = fs.statSync(filePath);
-    return stat.isFile() && stat.size > 0;
-  } catch {
-    return false;
-  }
+export function listCollections(db?: Database.Database): Collection[] {
+  return listSets(db).map(toCollection);
 }
 
-export function collectionLogo(
+export function findCollection(
   slug: string,
-  root = cardsDir(),
-): string | null {
-  const dir = collectionDir(slug, root);
-  for (const filename of LOGO_FILENAMES) {
-    if (isNonEmptyFile(path.join(dir, filename))) {
-      return filename;
-    }
+  db?: Database.Database,
+): Collection | null {
+  if (!isValidSlug(slug)) {
+    return null;
   }
-  return null;
+  const set = findSetBySlug(slug, db);
+  return set ? toCollection(set) : null;
 }
 
-export function isAllowedImageFilename(filename: string): boolean {
-  if (path.basename(filename) !== filename || filename.includes("..")) {
+export function listCards(setId: number, db?: Database.Database): Card[] {
+  return listSetCards(setId, db).map(toCard);
+}
+
+export function loadCollectionPage(
+  slug: string,
+  db?: Database.Database,
+): CollectionPageData | null {
+  const collection = findCollection(slug, db);
+  if (!collection) {
+    return null;
+  }
+  const cards = listCards(collection.id, db);
+  if (cards.length === 0) {
+    return null;
+  }
+  return { collection, cards };
+}
+
+export function imageBasename(imagePath: string): string {
+  return path.posix.basename(imagePath.replaceAll("\\", "/"));
+}
+
+const IMAGE_EXTENSION_TYPES: Readonly<Record<string, string>> = {
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+};
+
+export type CatalogImagePathError =
+  | "absolute"
+  | "escape"
+  | "outside-cards"
+  | "missing"
+  | "not-file"
+  | "unsupported";
+
+export type ResolvedCatalogImage =
+  | { ok: true; filePath: string; contentType: string }
+  | { ok: false; error: CatalogImagePathError };
+
+function isInsideDirectory(directory: string, candidate: string): boolean {
+  const relative = path.relative(directory, candidate);
+  if (relative === "") {
     return false;
+  }
+  return (
+    relative !== ".." &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
+  );
+}
+
+/**
+ * Resolve a catalog image or logo path against the repository root.
+ * Unsafe paths are rejected before the file is read.
+ */
+export function resolveCatalogImagePath(
+  catalogPath: string,
+  root = repoRoot(),
+): ResolvedCatalogImage {
+  const slash = catalogPath.replaceAll("\\", "/");
+  if (path.isAbsolute(catalogPath) || slash.startsWith("/")) {
+    return { ok: false, error: "absolute" };
+  }
+  if (slash.split("/").includes("..")) {
+    return { ok: false, error: "escape" };
+  }
+
+  let relative: string;
+  try {
+    relative = projectRelativePath(catalogPath);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message.includes("project-root-relative")) {
+      return { ok: false, error: "absolute" };
+    }
+    return { ok: false, error: "escape" };
+  }
+
+  if (!relative.startsWith("cards/") || relative.endsWith("/")) {
+    return { ok: false, error: "outside-cards" };
+  }
+
+  const contentType = IMAGE_EXTENSION_TYPES[path.extname(relative).toLowerCase()];
+  if (!contentType) {
+    return { ok: false, error: "unsupported" };
+  }
+
+  const cardsDirectory = path.resolve(root, "cards");
+  const filePath = path.resolve(root, relative);
+  if (!isInsideDirectory(cardsDirectory, filePath)) {
+    return { ok: false, error: "outside-cards" };
+  }
+
+  let realCards: string;
+  let realFile: string;
+  try {
+    realCards = fs.realpathSync(cardsDirectory);
+    realFile = fs.realpathSync(filePath);
+  } catch {
+    return { ok: false, error: "missing" };
+  }
+  if (!isInsideDirectory(realCards, realFile)) {
+    return { ok: false, error: "escape" };
+  }
+
+  try {
+    const stat = fs.statSync(realFile);
+    if (!stat.isFile() || stat.size <= 0) {
+      return { ok: false, error: "not-file" };
+    }
+  } catch {
+    return { ok: false, error: "missing" };
+  }
+
+  return { ok: true, filePath: realFile, contentType };
+}
+
+/**
+ * Catalog path for this set whose basename is `filename`.
+ * Logo names come only from `sets.logo_path`. Card names never fill in a logo.
+ */
+export function findApprovedImagePath(
+  slug: string,
+  filename: string,
+  db?: Database.Database,
+): string | null {
+  const collection = findCollection(slug, db);
+  if (!collection) {
+    return null;
   }
   if (LOGO_FILENAMES.includes(filename)) {
-    return true;
-  }
-  return filename.endsWith(".jpg");
-}
-
-export function imageContentType(filename: string): string {
-  const ext = path.extname(filename).toLowerCase();
-  if (ext === ".png") {
-    return "image/png";
-  }
-  if (ext === ".webp") {
-    return "image/webp";
-  }
-  return "image/jpeg";
-}
-
-export function listCollections(root = cardsDir()): Collection[] {
-  if (!fs.existsSync(root)) {
-    return [];
-  }
-  const collections: Collection[] = [];
-  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-    if (!entry.isDirectory() || !isValidSlug(entry.name)) {
-      continue;
+    if (
+      collection.logoPath != null &&
+      imageBasename(collection.logoPath) === filename
+    ) {
+      return collection.logoPath;
     }
-    const { title, setCode } = parseSlug(entry.name);
-    collections.push({ slug: entry.name, title, setCode });
+    return null;
   }
-  collections.sort((a, b) => a.slug.localeCompare(b.slug));
-  return collections;
+  const matches = [
+    ...new Set(
+      listCards(collection.id, db)
+        .map((card) => card.imagePath)
+        .filter((imagePath) => imageBasename(imagePath) === filename),
+    ),
+  ];
+  return matches.length === 1 ? matches[0] : null;
 }
 
-export function listCards(slug: string, root = cardsDir()): Card[] {
-  const dir = collectionDir(slug, root);
-  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
-    return [];
+/** Basename of a stored logo path when that file exists and is non-empty. */
+export function storedLogoFilename(
+  logoPath: string | null,
+  root = repoRoot(),
+): string | null {
+  if (logoPath == null || logoPath.length === 0) {
+    return null;
   }
-  const cards: Card[] = [];
-  for (const filename of fs.readdirSync(dir)) {
-    const card = parseCardFilename(filename);
-    if (card) {
-      cards.push(card);
-    }
+  const filename = path.posix.basename(logoPath.replaceAll("\\", "/"));
+  if (!LOGO_FILENAMES.includes(filename)) {
+    return null;
   }
-  cards.sort((a, b) => a.collectorNumber.localeCompare(b.collectorNumber));
-  return cards;
+  const resolved = resolveCatalogImagePath(logoPath, root);
+  if (!resolved.ok) {
+    return null;
+  }
+  return filename;
 }

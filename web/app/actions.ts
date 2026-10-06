@@ -1,39 +1,49 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { isValidSlug, listCards } from "@/lib/catalog";
-import { addCopy, removeCopy } from "@/lib/ownership";
+import { isValidSlug } from "@/lib/catalog";
+import { findSetBySlug, setCardExists } from "@/lib/catalog-db";
+import { addCopy, removeCopy } from "@/lib/ownership-db";
+import { ownershipActionContext } from "@/lib/ownership-action-context";
 
-function cardExists(slug: string, collectorNumber: string): boolean {
+function cardExists(slug: string, setId: number, setCardId: string): boolean {
+  const catalog = ownershipActionContext()?.catalog;
   if (!isValidSlug(slug)) {
     return false;
   }
-  return listCards(slug).some((card) => card.collectorNumber === collectorNumber);
+  const set = findSetBySlug(slug, catalog);
+  if (!set || set.id !== setId) {
+    return false;
+  }
+  return setCardExists(setId, setCardId, catalog);
 }
 
 function revalidateCollection(slug: string): void {
-  revalidatePath("/");
-  revalidatePath(`/collections/${slug}`);
+  const revalidate = ownershipActionContext()?.revalidate ?? revalidatePath;
+  revalidate("/");
+  revalidate(`/collections/${slug}`);
 }
 
 export async function addCopyAction(
   slug: string,
-  collectorNumber: string,
+  setId: number,
+  setCardId: string,
 ): Promise<void> {
-  if (!cardExists(slug, collectorNumber)) {
+  if (!cardExists(slug, setId, setCardId)) {
     return;
   }
-  addCopy(slug, collectorNumber);
+  addCopy(setId, setCardId, ownershipActionContext()?.ownership);
   revalidateCollection(slug);
 }
 
 export async function removeCopyAction(
   slug: string,
-  collectorNumber: string,
+  setId: number,
+  setCardId: string,
 ): Promise<void> {
-  if (!cardExists(slug, collectorNumber)) {
+  if (!cardExists(slug, setId, setCardId)) {
     return;
   }
-  removeCopy(slug, collectorNumber);
+  removeCopy(setId, setCardId, ownershipActionContext()?.ownership);
   revalidateCollection(slug);
 }

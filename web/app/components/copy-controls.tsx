@@ -2,15 +2,17 @@ import { addCopyAction, removeCopyAction } from "@/app/actions";
 
 export function CopyControls({
   slug,
-  collectorNumber,
+  setId,
+  setCardId,
   copies,
 }: {
   slug: string;
-  collectorNumber: string;
+  setId: number;
+  setCardId: string;
   copies: number;
 }) {
-  const add = addCopyAction.bind(null, slug, collectorNumber);
-  const remove = removeCopyAction.bind(null, slug, collectorNumber);
+  const add = addCopyAction.bind(null, slug, setId, setCardId);
+  const remove = removeCopyAction.bind(null, slug, setId, setCardId);
 
   return (
     <div className="mt-2 flex items-center justify-between gap-2 px-0.5">
