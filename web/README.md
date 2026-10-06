@@ -1,36 +1,43 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Pokemon DB binder
 
-## Getting Started
+Next.js app for the local Liga Pokémon archive. It reads catalog metadata from SQLite and serves image files from `cards/`. It does not scrape Liga Pokémon.
 
-First, run the development server:
+Run it from this directory:
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The process working directory is `web/`. Database helpers step up one level and open the repository-root files:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `data/catalog.db` — sets and set cards. Lists are ordered by `sort_key`, which stores Liga’s `dN` (or `sN` when `dN` is missing).
+- `data/ownership.db` — copies owned, keyed by `(set_id, set_card_id)`.
 
-## Learn More
+Adding or removing a copy writes only `data/ownership.db`. The app does not open `web/data/collection.db`.
 
-To learn more about Next.js, take a look at the following resources:
+Images stay under `cards/{set-slug}/`. A logo is shown only when `sets.logo_path` points at a non-empty file. That path is recorded by `migrate_collection.py --logo`. The app does not scan the set folder for `logo.png`. A missing logo shows the set-code badge. Card backs are not downloaded and are not part of the catalog.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+`cards/`, `data/*.db`, and `web/data/collection.db` are local data. Do not commit them.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## One-time migration
 
-## Deploy on Vercel
+Back up `cards/`, `web/data/collection.db`, and any existing `data/catalog.db` and `data/ownership.db` before these commands. From the repository root:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+uv run python scripts/migrate_collection.py \
+  "https://www.ligapokemon.com.br/?view=cards/search&card=edid=804%20ed=30C" \
+  --logo path/to/logo.png
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+uv run python scripts/migrate_ownership.py
+```
+
+Run `migrate_collection.py` once per downloaded set, then `migrate_ownership.py` once. See the repository `README.md` for the download CLI and what each command changes.
+
+## Tests
+
+```bash
+npm test
+```

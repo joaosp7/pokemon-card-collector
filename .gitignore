@@ -13,7 +13,11 @@ wheels/
 # Downloaded card images
 cards/
 
-# Next.js app
+# Repository-root databases. data/.gitkeep stays tracked.
+data/*.db
+data/*.db-*
+
+# Next.js app. web/data/collection.db stays ignored with the rest of web/data.
 web/.next/
 web/node_modules/
 web/data/*
