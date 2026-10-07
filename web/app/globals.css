@@ -151,6 +151,23 @@ a:hover .emblem {
   border-color: var(--pocket-plastic);
 }
 
+.export-pdf {
+  font-family: var(--font-plex), ui-monospace, monospace;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+  padding: 0.42rem 0.85rem;
+  margin-bottom: 0.35rem;
+  border-radius: 2px;
+  color: var(--ink-navy);
+  background: color-mix(in srgb, white 42%, var(--pocket-plastic));
+  border: 1px solid color-mix(in srgb, var(--ink-pocket) 22%, transparent);
+}
+
+.export-pdf:hover {
+  background: var(--pocket-plastic);
+  color: var(--ink-pocket);
+}
+
 .copy-btn {
   font-family: var(--font-plex), ui-monospace, monospace;
   font-size: 1.05rem;
