@@ -1,10 +1,14 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import path from "node:path";
 import { collectionUrlError } from "./collection-url";
+import type { LigaEdition } from "./edition-catalog";
+import { catalogEdition, catalogProcessEnv, readEditions } from "./liga-editions";
 
 export type SpawnFn = typeof spawn;
 
 const INVALID_REQUEST = "Invalid request.";
+const CHOOSE_COLLECTION = "Choose a collection from the catalog.";
+const CATALOG_UNREADABLE = "Could not read the catalog.";
 const DOWNLOAD_IN_PROGRESS = "A download is already running.";
 const DOWNLOAD_FAILED = "Download failed. Try again.";
 const SPAWN_FAILED = "Could not start download-collection. Is uv installed?";
@@ -37,14 +41,14 @@ export function startDownload(
 ): ChildProcessWithoutNullStreams {
   return spawnFn("uv", ["run", "download-collection", url], {
     cwd: repoRoot(),
-    env: process.env,
+    env: catalogProcessEnv(),
     stdio: ["ignore", "pipe", "pipe"],
   }) as ChildProcessWithoutNullStreams;
 }
 
 export async function handleAddCollection(
   request: Request,
-  deps?: { spawn?: SpawnFn },
+  deps?: { spawn?: SpawnFn; editions?: LigaEdition[] },
 ): Promise<Response> {
   let body: unknown;
   try {
@@ -57,8 +61,18 @@ export async function handleAddCollection(
     return Response.json({ error: INVALID_REQUEST }, { status: 400 });
   }
 
-  const url = (body as { url?: unknown }).url;
-  const urlError = collectionUrlError(url);
+  let editions: LigaEdition[];
+  try {
+    editions = deps?.editions ?? readEditions();
+  } catch {
+    return Response.json({ error: CATALOG_UNREADABLE }, { status: 500 });
+  }
+
+  const edition = catalogEdition(editions, (body as { url?: unknown }).url);
+  if (!edition) {
+    return Response.json({ error: CHOOSE_COLLECTION }, { status: 400 });
+  }
+  const urlError = collectionUrlError(edition.url);
   if (urlError) {
     return Response.json({ error: urlError }, { status: 400 });
   }
@@ -68,7 +82,7 @@ export async function handleAddCollection(
   }
 
   try {
-    const child = startDownload(url as string, deps?.spawn ?? spawn);
+    const child = startDownload(edition.url, deps?.spawn ?? spawn);
     return streamChild(child);
   } catch {
     releaseDownloadLock();

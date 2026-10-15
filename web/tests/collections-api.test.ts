@@ -3,13 +3,27 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
-import { COLLECTION_URL_ERROR, EXAMPLE_COLLECTION_URL } from "../lib/collection-url";
+import { EXAMPLE_COLLECTION_URL } from "../lib/collection-url";
+import type { LigaEdition } from "../lib/edition-catalog";
 import {
   handleAddCollection,
   repoRoot,
   resetDownloadLockForTests,
+  startDownload,
   type SpawnFn,
 } from "../lib/download-collection";
+import { catalogProcessEnv } from "../lib/liga-editions";
+
+const CATALOG: LigaEdition[] = [
+  {
+    name: "Storm Emeralda",
+    name_en: "Storm Emeralda",
+    name_pt: null,
+    name_pt_ascii: null,
+    set_code: "M6",
+    url: EXAMPLE_COLLECTION_URL,
+  },
+];
 
 type SpawnCall = {
   command: string;
@@ -42,11 +56,30 @@ async function readBody(response: Response): Promise<string> {
 }
 
 describe("handleAddCollection", () => {
+  test("download spawn drops an empty Playwright browser cache", () => {
+    let seen: NodeJS.ProcessEnv | undefined;
+    const spawnFn = ((
+      _command: string,
+      _args: readonly string[],
+      options: { env?: NodeJS.ProcessEnv },
+    ) => {
+      seen = options.env;
+      return createFakeChild();
+    }) as SpawnFn;
+
+    startDownload(EXAMPLE_COLLECTION_URL, spawnFn);
+
+    assert.equal(
+      seen?.PLAYWRIGHT_BROWSERS_PATH,
+      catalogProcessEnv().PLAYWRIGHT_BROWSERS_PATH,
+    );
+  });
+
   afterEach(() => {
     resetDownloadLockForTests();
   });
 
-  test("invalid URL returns 400 JSON and does not spawn", async () => {
+  test("a URL outside the catalog returns 400 and does not spawn", async () => {
     let spawned = 0;
     const spawnFn = (() => {
       spawned += 1;
@@ -55,11 +88,34 @@ describe("handleAddCollection", () => {
 
     const response = await handleAddCollection(
       postJson({ url: "https://example.com/?view=cards/search&card=edid=1" }),
-      { spawn: spawnFn },
+      { spawn: spawnFn, editions: CATALOG },
     );
 
     assert.equal(response.status, 400);
-    assert.deepEqual(await response.json(), { error: COLLECTION_URL_ERROR });
+    assert.deepEqual(await response.json(), {
+      error: "Choose a collection from the catalog.",
+    });
+    assert.equal(spawned, 0);
+  });
+
+  test("a Liga URL missing from the catalog returns 400 and does not spawn", async () => {
+    let spawned = 0;
+    const spawnFn = (() => {
+      spawned += 1;
+      return createFakeChild();
+    }) as SpawnFn;
+
+    const response = await handleAddCollection(
+      postJson({
+        url: "https://www.ligapokemon.com.br/?view=cards/search&card=edid=1%20ed=XX",
+      }),
+      { spawn: spawnFn, editions: CATALOG },
+    );
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), {
+      error: "Choose a collection from the catalog.",
+    });
     assert.equal(spawned, 0);
   });
 
@@ -76,7 +132,7 @@ describe("handleAddCollection", () => {
         headers: { "Content-Type": "application/json" },
         body: "{not json",
       }),
-      { spawn: spawnFn },
+      { spawn: spawnFn, editions: CATALOG },
     );
 
     assert.equal(response.status, 400);
@@ -99,7 +155,7 @@ describe("handleAddCollection", () => {
 
     const response = await handleAddCollection(
       postJson({ url: EXAMPLE_COLLECTION_URL }),
-      { spawn: spawnFn },
+      { spawn: spawnFn, editions: CATALOG },
     );
 
     assert.equal(response.status, 200);
@@ -136,7 +192,7 @@ describe("handleAddCollection", () => {
 
     const response = await handleAddCollection(
       postJson({ url: EXAMPLE_COLLECTION_URL }),
-      { spawn: spawnFn },
+      { spawn: spawnFn, editions: CATALOG },
     );
 
     assert.ok(child);
@@ -161,11 +217,11 @@ describe("handleAddCollection", () => {
 
     const first = await handleAddCollection(
       postJson({ url: EXAMPLE_COLLECTION_URL }),
-      { spawn: spawnFn },
+      { spawn: spawnFn, editions: CATALOG },
     );
     const second = await handleAddCollection(
       postJson({ url: EXAMPLE_COLLECTION_URL }),
-      { spawn: spawnFn },
+      { spawn: spawnFn, editions: CATALOG },
     );
 
     assert.equal(first.status, 200);
@@ -180,7 +236,7 @@ describe("handleAddCollection", () => {
 
     const third = await handleAddCollection(
       postJson({ url: EXAMPLE_COLLECTION_URL }),
-      { spawn: spawnFn },
+      { spawn: spawnFn, editions: CATALOG },
     );
     assert.equal(third.status, 200);
     assert.equal(children.length, 2);
@@ -198,7 +254,7 @@ describe("handleAddCollection", () => {
 
     const response = await handleAddCollection(
       postJson({ url: EXAMPLE_COLLECTION_URL }),
-      { spawn: spawnFn },
+      { spawn: spawnFn, editions: CATALOG },
     );
 
     assert.ok(children[0]);
@@ -214,7 +270,7 @@ describe("handleAddCollection", () => {
 
     const retry = await handleAddCollection(
       postJson({ url: EXAMPLE_COLLECTION_URL }),
-      { spawn: spawnFn },
+      { spawn: spawnFn, editions: CATALOG },
     );
     assert.equal(retry.status, 200);
     assert.equal(children.length, 2);
