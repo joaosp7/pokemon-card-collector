@@ -95,6 +95,12 @@ cd web && npm test
 
 Do not hit Liga Pokémon from tests. Fixture the `cardsjson` shape and assert folder slugs, filenames, sort order, skip-existing, and catalog upserts.
 
+## Cursor Cloud specific instructions
+
+- Use `uv`, not system `python3`. This image's `python3` is 3.12; the project requires 3.14 from `.python-version`. `uv` and `download-collection` are linked on `/usr/local/bin`. Playwright Chromium is installed for the downloader.
+- On boot, `start` runs `npm run dev` from `web/` on port 3000 (http://localhost:3000). If something is already listening there, the script leaves it running.
+- Documented checks are `uv run python -m unittest discover -s tests -v` and `cd web && npm test`. They do not contact Liga Pokémon. `npm run lint` and `npm run build` currently fail on existing source errors (a `useDb` helper that ESLint treats as a React hook, and TypeScript errors in layout and spawn types).
+
 ## Agent notes
 
 - Keep the script reusable: input is always a Liga collection search URL; set size and images change per collection.
