@@ -119,3 +119,32 @@ export function countOwned(setId: number, db?: Database.Database): number {
     .get(setId) as { count: number };
   return row.count;
 }
+
+export type OwnershipSummary = {
+  cards: number;
+  copies: number;
+};
+
+export function summarizeOwnership(
+  setId: number,
+  db?: Database.Database,
+): OwnershipSummary {
+  const row = useDb(db)
+    .prepare(
+      `SELECT COUNT(*) AS cards, COALESCE(SUM(copies), 0) AS copies
+       FROM owned_cards
+       WHERE set_id = ?`,
+    )
+    .get(setId) as { cards: number; copies: number };
+  return { cards: Number(row.cards), copies: Number(row.copies) };
+}
+
+export function deleteOwnedForSet(
+  setId: number,
+  db?: Database.Database,
+): number {
+  const result = useDb(db)
+    .prepare(`DELETE FROM owned_cards WHERE set_id = ?`)
+    .run(setId);
+  return result.changes;
+}

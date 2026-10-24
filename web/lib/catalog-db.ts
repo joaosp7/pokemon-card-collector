@@ -213,3 +213,21 @@ export function setCardExists(
     .get(setId, setCardId) as { present: number } | undefined;
   return row !== undefined;
 }
+
+export function deleteSetBySlug(
+  slug: string,
+  db?: Database.Database,
+): Collection | null {
+  const conn = useDb(db);
+  return conn.transaction(() => {
+    const row = conn
+      .prepare(`SELECT ${SET_COLUMNS} FROM sets WHERE slug = ?`)
+      .get(slug) as SetRow | undefined;
+    if (!row) {
+      return null;
+    }
+    conn.prepare(`DELETE FROM set_cards WHERE set_id = ?`).run(row.id);
+    conn.prepare(`DELETE FROM sets WHERE id = ?`).run(row.id);
+    return mapSet(row);
+  })();
+}
