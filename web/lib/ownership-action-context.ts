@@ -4,6 +4,7 @@ export type OwnershipActionContext = {
   catalog?: Database.Database;
   ownership?: Database.Database;
   revalidate?: (path: string) => void;
+  root?: string;
 };
 
 let context: OwnershipActionContext | undefined;
