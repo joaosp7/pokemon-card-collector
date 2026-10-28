@@ -422,6 +422,69 @@ class CatalogDownloadTests(unittest.TestCase):
             self.assertEqual(card["name_pt"], "Nidoran Fêmea")
             self.assertNotEqual(card["image_path"], f"cards/{SLUG}/001_G_Old.jpg")
 
+    def test_removed_set_is_not_imported_again(self) -> None:
+        catalog = _fixture_cards()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            conn = self.connect(root)
+            try:
+                catalog_db.insert_set(
+                    conn,
+                    {
+                        "set_code": SET_CODE,
+                        "name_pt": "Celebração de 30 Anos",
+                        "name_en": None,
+                        "slug": SLUG,
+                        "source_url": URL,
+                        "logo_path": None,
+                        "card_count": 1,
+                    },
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            def download_then_delete(url: str, dest: Path, retries: int = 3) -> str:
+                del url, retries
+                live = catalog_db.connect(root / "data" / "catalog.db")
+                try:
+                    live.execute("DELETE FROM set_cards")
+                    live.execute("DELETE FROM sets")
+                    live.commit()
+                finally:
+                    live.close()
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(b"front-bytes")
+                return "downloaded"
+
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with (
+                mock.patch.object(dc, "project_root", return_value=root),
+                mock.patch.object(
+                    dc,
+                    "fetch_page_data",
+                    return_value=(TITLE, catalog, SET_CODE),
+                ),
+                mock.patch.object(dc, "download_to", side_effect=download_then_delete),
+                mock.patch.object(dc.time, "sleep"),
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+            ):
+                code = dc.main([URL])
+
+            self.assertEqual(code, 0)
+            self.assertIn("removed during download", stderr.getvalue())
+            conn = self.connect(root)
+            try:
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM sets").fetchone()[0], 0)
+                self.assertEqual(
+                    conn.execute("SELECT COUNT(*) FROM set_cards").fetchone()[0],
+                    0,
+                )
+            finally:
+                conn.close()
+            self.assertFalse((root / "cards" / SLUG).exists())
+
     def test_sn_values_stay_text_with_leading_zeroes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

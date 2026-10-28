@@ -1,5 +1,5 @@
 import { listCards, listCollections, storedLogoFilename } from "@/lib/catalog";
-import { countOwned } from "@/lib/ownership-db";
+import { countOwned, summarizeOwnership } from "@/lib/ownership-db";
 import { CollectionTile } from "@/app/components/collection-tile";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +16,7 @@ export default function Home() {
         title: collection.title,
         setCode: collection.setCode,
         owned: countOwned(collection.id),
+        ownedCopies: summarizeOwnership(collection.id).copies,
         total: cards.length,
         logoFilename: storedLogoFilename(collection.logoPath),
       };

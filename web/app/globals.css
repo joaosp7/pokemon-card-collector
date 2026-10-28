@@ -219,6 +219,59 @@ a:hover .emblem {
   background: color-mix(in srgb, var(--playmat) 78%, black);
 }
 
+.delete-set-dialog {
+  width: min(28.5rem, calc(100% - 2rem));
+  margin: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ink-pocket);
+}
+
+.delete-set-dialog::backdrop {
+  background: color-mix(in srgb, var(--playmat) 78%, black);
+}
+
+.delete-set-menu {
+  position: fixed;
+  z-index: 30;
+  min-width: 9rem;
+  padding: 0.2rem;
+  background: var(--pocket-paper);
+  border: 1px solid color-mix(in srgb, var(--ink-pocket) 22%, transparent);
+  border-radius: 2px;
+  box-shadow: 0 8px 18px rgb(36 52 71 / 0.16);
+}
+
+.delete-set-menu button {
+  display: block;
+  width: 100%;
+  font-family: var(--font-plex), ui-monospace, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-align: left;
+  color: var(--stamp-red);
+  background: transparent;
+  border: none;
+  border-radius: 2px;
+  padding: 0.42rem 0.6rem;
+  cursor: pointer;
+}
+
+.delete-set-menu button:hover {
+  background: color-mix(in srgb, var(--stamp-red) 14%, white);
+}
+
+.delete-set-dialog .delete-set-confirm {
+  color: var(--pocket-paper);
+  background: var(--stamp-red);
+  border-color: color-mix(in srgb, var(--stamp-red) 70%, var(--ink-pocket));
+}
+
+.delete-set-dialog .delete-set-confirm:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--stamp-red) 82%, black);
+}
+
 .add-collection-paper {
   background: var(--pocket-paper);
   padding: 1.15rem 1.2rem 1.3rem;

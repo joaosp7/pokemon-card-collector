@@ -119,3 +119,75 @@ export function countOwned(setId: number, db?: Database.Database): number {
     .get(setId) as { count: number };
   return row.count;
 }
+
+export type OwnershipSummary = {
+  cards: number;
+  copies: number;
+};
+
+export function summarizeOwnership(
+  setId: number,
+  db?: Database.Database,
+): OwnershipSummary {
+  const row = useDb(db)
+    .prepare(
+      `SELECT COUNT(*) AS cards, COALESCE(SUM(copies), 0) AS copies
+       FROM owned_cards
+       WHERE set_id = ?`,
+    )
+    .get(setId) as { cards: number; copies: number };
+  return { cards: Number(row.cards), copies: Number(row.copies) };
+}
+
+export type OwnedRow = {
+  setCardId: string;
+  copies: number;
+  updatedAt: string;
+};
+
+export function listOwnedForSet(
+  setId: number,
+  db?: Database.Database,
+): OwnedRow[] {
+  const rows = useDb(db)
+    .prepare(
+      `SELECT set_card_id, copies, updated_at FROM owned_cards
+       WHERE set_id = ?
+       ORDER BY set_card_id`,
+    )
+    .all(setId) as { set_card_id: string; copies: number; updated_at: string }[];
+  return rows.map((row) => ({
+    setCardId: row.set_card_id,
+    copies: row.copies,
+    updatedAt: row.updated_at,
+  }));
+}
+
+export function deleteOwnedForSet(
+  setId: number,
+  db?: Database.Database,
+): number {
+  const result = useDb(db)
+    .prepare(`DELETE FROM owned_cards WHERE set_id = ?`)
+    .run(setId);
+  return result.changes;
+}
+
+export function restoreOwnedForSet(
+  setId: number,
+  rows: readonly OwnedRow[],
+  db?: Database.Database,
+): void {
+  const conn = useDb(db);
+  const insert = conn.prepare(
+    `INSERT INTO owned_cards (set_id, set_card_id, copies, updated_at)
+     VALUES (?, ?, ?, ?)`,
+  );
+  const txn = conn.transaction(() => {
+    conn.prepare(`DELETE FROM owned_cards WHERE set_id = ?`).run(setId);
+    for (const row of rows) {
+      insert.run(setId, row.setCardId, row.copies, row.updatedAt);
+    }
+  });
+  txn();
+}
