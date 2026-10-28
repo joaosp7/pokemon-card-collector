@@ -31,6 +31,10 @@ export function resetDownloadLockForTests(): void {
   downloadLocked = false;
 }
 
+export function isDownloadLocked(): boolean {
+  return downloadLocked;
+}
+
 export function repoRoot(): string {
   return path.resolve(process.cwd(), "..");
 }

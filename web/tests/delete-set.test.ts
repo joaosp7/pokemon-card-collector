@@ -8,6 +8,12 @@ import type Database from "better-sqlite3";
 import { deleteSetAction } from "../app/actions";
 import { deleteSetBySlug, findSetBySlug, listSetCards, openCatalog } from "../lib/catalog-db";
 import { removeSetImageDirectory } from "../lib/delete-set-files";
+import {
+  isDownloadLocked,
+  releaseDownloadLock,
+  resetDownloadLockForTests,
+  tryAcquireDownloadLock,
+} from "../lib/download-collection";
 import { setOwnershipActionContextForTests } from "../lib/ownership-action-context";
 import {
   addCopy,
@@ -360,18 +366,73 @@ describe("delete set", { concurrency: false }, () => {
     }
   });
 
-  test("a file deletion error leaves the catalog and ownership rows in place", async () => {
+  test("a catalog failure puts the image folder and ownership rows back", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "pokemon-delete-set-"));
     const fixture = openFixture();
-    const original = fs.rmSync;
-    fs.rmSync = (() => {
-      throw new Error("disk full");
-    }) as typeof fs.rmSync;
     try {
       await writeSetDir(root, SLUG_A);
       await writeSetDir(root, SLUG_B);
       addCopy(fixture.setA, "001", fixture.ownership);
+      addCopy(fixture.setA, "001", fixture.ownership);
       addCopy(fixture.setB, "001", fixture.ownership);
+      fixture.catalog.exec(
+        `CREATE TRIGGER fail_delete_set
+         BEFORE DELETE ON sets
+         BEGIN
+           SELECT RAISE(ABORT, 'catalog delete failed');
+         END`,
+      );
+      useFixture(fixture, root);
+
+      const result = await deleteSetAction(SLUG_A);
+      assert.deepEqual(result, {
+        ok: false,
+        error: "Could not delete this set.",
+      });
+      assert.equal(findSetBySlug(SLUG_A, fixture.catalog)?.id, fixture.setA);
+      assert.deepEqual(cardRows(fixture.catalog), [
+        { set_id: fixture.setA, id: "001" },
+        { set_id: fixture.setA, id: "002" },
+        { set_id: fixture.setB, id: "001" },
+      ]);
+      assert.deepEqual(ownedRows(fixture.ownership), [
+        { set_id: fixture.setA, set_card_id: "001", copies: 2 },
+        { set_id: fixture.setB, set_card_id: "001", copies: 1 },
+      ]);
+      assert.equal(
+        fs.readFileSync(path.join(root, "cards", SLUG_A, "001.jpg"), "utf8"),
+        `${SLUG_A}-card`,
+      );
+      assert.equal(
+        fs.readFileSync(path.join(root, "cards", SLUG_A, "logo.png"), "utf8"),
+        `${SLUG_A}-logo`,
+      );
+      assert.equal(
+        fs.readFileSync(path.join(root, "cards", SLUG_B, "logo.png"), "utf8"),
+        `${SLUG_B}-logo`,
+      );
+      const parked = fs
+        .readdirSync(path.join(root, "cards"))
+        .filter((name) => name.startsWith("."));
+      assert.deepEqual(parked, []);
+      assert.deepEqual(fixture.paths, []);
+    } finally {
+      fixture.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a symlinked set folder leaves the catalog, ownership, and link target", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "pokemon-delete-set-"));
+    const outside = await mkdtemp(path.join(os.tmpdir(), "pokemon-delete-outside-"));
+    const fixture = openFixture();
+    try {
+      await mkdir(path.join(root, "cards"), { recursive: true });
+      await writeSetDir(root, SLUG_B);
+      await mkdir(path.join(outside, SLUG_A), { recursive: true });
+      await writeFile(path.join(outside, SLUG_A, "001.jpg"), "outside-card");
+      await symlink(path.join(outside, SLUG_A), path.join(root, "cards", SLUG_A));
+      addCopy(fixture.setA, "001", fixture.ownership);
       addCopy(fixture.setB, "001", fixture.ownership);
       useFixture(fixture, root);
 
@@ -381,18 +442,12 @@ describe("delete set", { concurrency: false }, () => {
         error: "Could not delete the image folder.",
       });
       assert.equal(findSetBySlug(SLUG_A, fixture.catalog)?.id, fixture.setA);
-      assert.deepEqual(cardRows(fixture.catalog), [
-        { set_id: fixture.setA, id: "001" },
-        { set_id: fixture.setA, id: "002" },
-        { set_id: fixture.setB, id: "001" },
-      ]);
-      assert.deepEqual(ownedRows(fixture.ownership), [
-        { set_id: fixture.setA, set_card_id: "001", copies: 1 },
-        { set_id: fixture.setB, set_card_id: "001", copies: 2 },
-      ]);
+      assert.equal(getCopies(fixture.setA, "001", fixture.ownership), 1);
+      assert.equal(getCopies(fixture.setB, "001", fixture.ownership), 1);
+      assert.equal(fs.lstatSync(path.join(root, "cards", SLUG_A)).isSymbolicLink(), true);
       assert.equal(
-        fs.readFileSync(path.join(root, "cards", SLUG_A, "001.jpg"), "utf8"),
-        `${SLUG_A}-card`,
+        fs.readFileSync(path.join(outside, SLUG_A, "001.jpg"), "utf8"),
+        "outside-card",
       );
       assert.equal(
         fs.readFileSync(path.join(root, "cards", SLUG_B, "logo.png"), "utf8"),
@@ -400,7 +455,39 @@ describe("delete set", { concurrency: false }, () => {
       );
       assert.deepEqual(fixture.paths, []);
     } finally {
-      fs.rmSync = original;
+      fixture.close();
+      await rm(root, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("delete is refused while a download holds the lock", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "pokemon-delete-set-"));
+    const fixture = openFixture();
+    resetDownloadLockForTests();
+    assert.equal(tryAcquireDownloadLock(), true);
+    try {
+      await writeSetDir(root, SLUG_A);
+      addCopy(fixture.setA, "001", fixture.ownership);
+      addCopy(fixture.setB, "001", fixture.ownership);
+      useFixture(fixture, root);
+
+      const result = await deleteSetAction(SLUG_A);
+      assert.deepEqual(result, {
+        ok: false,
+        error: "A download is already running.",
+      });
+      assert.equal(isDownloadLocked(), true);
+      assert.equal(findSetBySlug(SLUG_A, fixture.catalog)?.id, fixture.setA);
+      assert.equal(getCopies(fixture.setA, "001", fixture.ownership), 1);
+      assert.equal(getCopies(fixture.setB, "001", fixture.ownership), 1);
+      assert.equal(
+        fs.readFileSync(path.join(root, "cards", SLUG_A, "001.jpg"), "utf8"),
+        `${SLUG_A}-card`,
+      );
+      assert.deepEqual(fixture.paths, []);
+    } finally {
+      releaseDownloadLock();
       fixture.close();
       await rm(root, { recursive: true, force: true });
     }
