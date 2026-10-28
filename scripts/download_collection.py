@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import html
 import re
+import shutil
 import sqlite3
 import sys
 import time
@@ -169,17 +170,33 @@ def set_title(title: str) -> str:
     return title.split("|", 1)[0].strip()
 
 
+def set_was_in_catalog(set_code: str) -> bool:
+    """True when ``set_code`` already has a row in the catalog."""
+    import catalog_db
+
+    conn = catalog_db.connect(project_root() / "data" / "catalog.db")
+    try:
+        return catalog_db.find_set_by_code(conn, set_code) is not None
+    finally:
+        conn.close()
+
+
 def persist_downloaded_catalog(
     title: str,
     cards: list[dict[str, Any]],
     set_code: str,
     slug: str,
     source_url: str,
-) -> int:
+    *,
+    skip_if_removed: bool = False,
+) -> int | None:
     """Upsert the set and its front-image catalog rows. Does not download images.
 
     ``logo_path`` is omitted so an existing logo stays in place. ``illustrator``
     is left null. Image paths are the expected front files, even if a download failed.
+
+    When ``skip_if_removed`` is set and the set row is gone, return ``None``
+    instead of inserting it again.
     """
     import catalog_db
     import catalog_fields
@@ -194,9 +211,18 @@ def persist_downloaded_catalog(
     }
     conn = catalog_db.connect(project_root() / "data" / "catalog.db")
     try:
+        if skip_if_removed and catalog_db.find_set_by_code(conn, set_code) is None:
+            return None
         return catalog_db.import_set(conn, fields, rows)
     finally:
         conn.close()
+
+
+def discard_downloaded_directory(out_dir: Path) -> None:
+    """Remove a real ``cards/{slug}`` directory this download recreated."""
+    if out_dir.parent.name != "cards" or out_dir.is_symlink() or not out_dir.is_dir():
+        return
+    shutil.rmtree(out_dir)
 
 
 def fetch_page_data(url: str, *, headed: bool = False) -> tuple[str, list[dict[str, Any]], str]:
@@ -264,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Cards: {card_count}")
         return 0
 
+    present_at_start = set_was_in_catalog(set_code)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     jobs: list[tuple[str, str, str]] = []
@@ -293,16 +320,23 @@ def main(argv: list[str] | None = None) -> int:
         f"skipped={skipped} failed={failed}"
     )
     try:
-        persist_downloaded_catalog(
+        persisted = persist_downloaded_catalog(
             title,
             cards,
             set_code,
             slug,
             args.url,
+            skip_if_removed=present_at_start,
         )
     except (OSError, ValueError, sqlite3.Error) as exc:
         print(exc, file=sys.stderr)
         return 1
+    if persisted is None:
+        print(
+            "Set was removed during download; catalog was left unchanged.",
+            file=sys.stderr,
+        )
+        discard_downloaded_directory(out_dir)
     return 1 if failed else 0
 
 
