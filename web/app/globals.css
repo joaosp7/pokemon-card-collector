@@ -334,6 +334,11 @@ a:hover .emblem {
   cursor: pointer;
 }
 
+.add-collection-headed:has(input:disabled) {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .add-collection-headed input {
   margin-top: 0.15rem;
   accent-color: var(--ink-pocket);

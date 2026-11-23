@@ -31,7 +31,12 @@ CATALOG_WAIT_JS = """() => {
     if (fromEdc.length > 0 || fromJson.length > 0) {
         return true;
     }
-    return document.title.includes('Attention Required');
+    const title = document.title || "";
+    if (title.includes("Attention Required") && title.includes("Cloudflare")) {
+        return true;
+    }
+    const bodyText = document.body ? (document.body.innerText || "").slice(0, 2000) : "";
+    return bodyText.toLowerCase().includes("you have been blocked");
 }"""
 EXTRACT_JS = """() => {
     const fromEdc = (typeof edc !== 'undefined' && edc && Array.isArray(edc.obj))
@@ -40,7 +45,7 @@ EXTRACT_JS = """() => {
         ? cardsjson : [];
     const catalog = fromEdc.length > 0 ? fromEdc : fromJson;
     const sigla = catalog.length ? (catalog[0].sSigla || "") : "";
-    const bodyText = document.body ? document.body.innerText.slice(0, 2000) : "";
+    const bodyText = document.body ? (document.body.innerText || "").slice(0, 2000) : "";
     return { title: document.title, catalog, sigla, bodyText };
 }"""
 BLOCKED_EXIT_CODE = 3
@@ -63,6 +68,25 @@ def is_cloudflare_block(title: str, body_text: str) -> bool:
     if "Attention Required" in title and "Cloudflare" in title:
         return True
     return "you have been blocked" in body_text.lower()
+
+
+def is_cloudflare_challenge(title: str, body_text: str) -> bool:
+    """True when the page is Cloudflare's interstitial challenge page."""
+    title_lower = title.lower()
+    if "just a moment" in title_lower or "um momento" in title_lower:
+        return True
+    body_lower = body_text.lower()
+    if "cloudflare" not in body_lower:
+        return False
+    return any(
+        phrase in body_lower
+        for phrase in (
+            "verify you are human",
+            "checking your browser",
+            "verificando se você é humano",
+            "enable javascript and cookies",
+        )
+    )
 
 
 def sanitize_collection_url(url: str) -> str:
@@ -224,24 +248,42 @@ def persist_downloaded_catalog(
 
 
 def fetch_page_data(url: str, *, headed: bool = False) -> tuple[str, list[dict[str, Any]], str]:
-    from playwright.sync_api import sync_playwright
+    from playwright.sync_api import (
+        TimeoutError as PlaywrightTimeoutError,
+        sync_playwright,
+    )
 
+    timeout_error: PlaywrightTimeoutError | None = None
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=not headed)
         try:
             page = browser.new_page()
             page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-            page.wait_for_function(CATALOG_WAIT_JS, timeout=60_000)
-            data = page.evaluate(EXTRACT_JS)
+            try:
+                page.wait_for_function(CATALOG_WAIT_JS, timeout=60_000)
+            except PlaywrightTimeoutError as exc:
+                timeout_error = exc
+            try:
+                data = page.evaluate(EXTRACT_JS)
+            except Exception:
+                if timeout_error is not None:
+                    raise timeout_error
+                raise
         finally:
             browser.close()
 
-    if not data["catalog"] and is_cloudflare_block(
-        str(data["title"] or ""), str(data.get("bodyText") or "")
+    title = str(data.get("title") or "")
+    body_text = str(data.get("bodyText") or "")
+    catalog = list(data.get("catalog") or [])
+    if not catalog and (
+        is_cloudflare_block(title, body_text)
+        or (timeout_error is not None and is_cloudflare_challenge(title, body_text))
     ):
-        raise CloudflareBlockedError(data["title"])
+        raise CloudflareBlockedError(title)
+    if timeout_error is not None and not catalog:
+        raise timeout_error
 
-    return data["title"], list(data["catalog"]), str(data["sigla"] or "")
+    return title, catalog, str(data.get("sigla") or "")
 
 
 def planned_output(

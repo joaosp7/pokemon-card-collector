@@ -64,7 +64,7 @@ download-collection "https://www.ligapokemon.com.br/?view=cards/search&card=edid
 
 `--dryrun` is an alias of `--dry-run`. `--headed` shows Chromium (only if a Cloudflare challenge blocks headless).
 
-If Liga's Cloudflare serves its block page ("Sorry, you have been blocked"), the CLI stops waiting, prints a message on stderr, and exits with code `3`. Without `--headed` the message suggests retrying with it. The web app maps exit `3` to a clear error and turns on its **Show browser window** option, which passes `--headed` to the CLI.
+If Liga's Cloudflare serves its block page ("Sorry, you have been blocked"), the CLI stops waiting, prints a message on stderr, and exits with code `3`. A Cloudflare challenge ("Just a moment...") that still hasn't cleared when the wait times out also exits with code `3` (leaving the browser open during the wait so `--headed` can be completed manually). Without `--headed` the message suggests retrying with it. The web app maps exit `3` to a clear error and turns on its **Show browser window** option, which passes `--headed` to the CLI.
 
 Re-running the same URL is safe: already-downloaded images are skipped, and the catalog upsert reuses the existing `sets.id`. Exit code is `1` if any image fails after retries.
 
