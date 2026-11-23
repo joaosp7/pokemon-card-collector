@@ -28,7 +28,10 @@ CATALOG_WAIT_JS = """() => {
         ? edc.obj : [];
     const fromJson = (typeof cardsjson !== 'undefined' && Array.isArray(cardsjson))
         ? cardsjson : [];
-    return fromEdc.length > 0 || fromJson.length > 0;
+    if (fromEdc.length > 0 || fromJson.length > 0) {
+        return true;
+    }
+    return document.title.includes('Attention Required');
 }"""
 EXTRACT_JS = """() => {
     const fromEdc = (typeof edc !== 'undefined' && edc && Array.isArray(edc.obj))
@@ -37,8 +40,29 @@ EXTRACT_JS = """() => {
         ? cardsjson : [];
     const catalog = fromEdc.length > 0 ? fromEdc : fromJson;
     const sigla = catalog.length ? (catalog[0].sSigla || "") : "";
-    return { title: document.title, catalog, sigla };
+    const bodyText = document.body ? document.body.innerText.slice(0, 2000) : "";
+    return { title: document.title, catalog, sigla, bodyText };
 }"""
+BLOCKED_EXIT_CODE = 3
+BLOCKED_MESSAGE = (
+    "Blocked by Cloudflare on ligapokemon.com.br. "
+    "Try again with --headed (shows the browser window)."
+)
+BLOCKED_HEADED_MESSAGE = (
+    "Blocked by Cloudflare on ligapokemon.com.br even with a visible browser. "
+    "Wait a few minutes and try again."
+)
+
+
+class CloudflareBlockedError(RuntimeError):
+    """Liga's Cloudflare served its block page instead of the collection."""
+
+
+def is_cloudflare_block(title: str, body_text: str) -> bool:
+    """True when the page is Cloudflare's "you have been blocked" page."""
+    if "Attention Required" in title and "Cloudflare" in title:
+        return True
+    return "you have been blocked" in body_text.lower()
 
 
 def sanitize_collection_url(url: str) -> str:
@@ -212,6 +236,11 @@ def fetch_page_data(url: str, *, headed: bool = False) -> tuple[str, list[dict[s
         finally:
             browser.close()
 
+    if not data["catalog"] and is_cloudflare_block(
+        str(data["title"] or ""), str(data.get("bodyText") or "")
+    ):
+        raise CloudflareBlockedError(data["title"])
+
     return data["title"], list(data["catalog"]), str(data["sigla"] or "")
 
 
@@ -249,7 +278,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    title, catalog, sigla = fetch_page_data(args.url, headed=args.headed)
+    try:
+        title, catalog, sigla = fetch_page_data(args.url, headed=args.headed)
+    except CloudflareBlockedError:
+        message = BLOCKED_HEADED_MESSAGE if args.headed else BLOCKED_MESSAGE
+        print(message, file=sys.stderr)
+        return BLOCKED_EXIT_CODE
     if not catalog:
         print("No cards found in page catalog.", file=sys.stderr)
         return 1

@@ -12,6 +12,11 @@ const CATALOG_UNREADABLE = "Could not read the catalog.";
 const DOWNLOAD_IN_PROGRESS = "A download is already running.";
 const DOWNLOAD_FAILED = "Download failed. Try again.";
 const SPAWN_FAILED = "Could not start download-collection. Is uv installed?";
+const BLOCKED = "Liga's Cloudflare blocked the download. Turn on “Show browser window” and try again.";
+const BLOCKED_HEADED = "Liga's Cloudflare blocked the download even with the browser window. Wait a few minutes and try again.";
+
+/** Exit code `download-collection` uses when Cloudflare serves its block page. */
+export const BLOCKED_EXIT_CODE = 3;
 
 let downloadLocked = false;
 
@@ -38,8 +43,13 @@ export function repoRoot(): string {
 export function startDownload(
   url: string,
   spawnFn: SpawnFn = spawn,
+  options: { headed?: boolean } = {},
 ): ChildProcessWithoutNullStreams {
-  return spawnFn("uv", ["run", "download-collection", url], {
+  const args = ["run", "download-collection", url];
+  if (options.headed) {
+    args.push("--headed");
+  }
+  return spawnFn("uv", args, {
     cwd: repoRoot(),
     env: catalogProcessEnv(),
     stdio: ["ignore", "pipe", "pipe"],
@@ -68,7 +78,12 @@ export async function handleAddCollection(
     return Response.json({ error: CATALOG_UNREADABLE }, { status: 500 });
   }
 
-  const edition = catalogEdition(editions, (body as { url?: unknown }).url);
+  const { url, headed } = body as { url?: unknown; headed?: unknown };
+  if (headed !== undefined && typeof headed !== "boolean") {
+    return Response.json({ error: INVALID_REQUEST }, { status: 400 });
+  }
+
+  const edition = catalogEdition(editions, url);
   if (!edition) {
     return Response.json({ error: CHOOSE_COLLECTION }, { status: 400 });
   }
@@ -82,15 +97,20 @@ export async function handleAddCollection(
   }
 
   try {
-    const child = startDownload(edition.url, deps?.spawn ?? spawn);
-    return streamChild(child);
+    const child = startDownload(edition.url, deps?.spawn ?? spawn, {
+      headed: headed === true,
+    });
+    return streamChild(child, headed === true);
   } catch {
     releaseDownloadLock();
     return Response.json({ error: SPAWN_FAILED }, { status: 500 });
   }
 }
 
-function streamChild(child: ChildProcessWithoutNullStreams): Response {
+function streamChild(
+  child: ChildProcessWithoutNullStreams,
+  headed: boolean,
+): Response {
   const encoder = new TextEncoder();
   const stdoutBuf = { value: "" };
   const stderrBuf = { value: "" };
@@ -144,6 +164,13 @@ function streamChild(child: ChildProcessWithoutNullStreams): Response {
   child.once("close", (code) => {
     if (code === 0) {
       settle({ type: "done", ok: true });
+    } else if (code === BLOCKED_EXIT_CODE) {
+      settle({
+        type: "done",
+        ok: false,
+        reason: "blocked",
+        error: headed ? BLOCKED_HEADED : BLOCKED,
+      });
     } else {
       settle({ type: "done", ok: false, error: DOWNLOAD_FAILED });
     }

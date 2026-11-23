@@ -722,5 +722,46 @@ class CatalogDownloadTests(unittest.TestCase):
                 self.assertFalse((root / "data" / "catalog.db").exists())
 
 
+class CloudflareBlockTests(unittest.TestCase):
+    def test_detects_block_page_title(self) -> None:
+        self.assertTrue(dc.is_cloudflare_block("Attention Required! | Cloudflare", ""))
+
+    def test_detects_block_page_body(self) -> None:
+        body = "Sorry, you have been blocked\nYou are unable to access ligaturbo.com.br"
+        self.assertTrue(dc.is_cloudflare_block("", body))
+
+    def test_collection_page_is_not_a_block(self) -> None:
+        title = "Storm Emeralda | Liga Pokémon"
+        self.assertFalse(dc.is_cloudflare_block(title, "Mostrar mais"))
+
+    def run_blocked(self, argv: list[str]) -> tuple[int, str, str]:
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with (
+            mock.patch.object(
+                dc,
+                "fetch_page_data",
+                side_effect=dc.CloudflareBlockedError("Attention Required! | Cloudflare"),
+            ),
+            mock.patch.object(dc, "urlopen", side_effect=AssertionError("image download")),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            code = dc.main(argv)
+        return code, stdout.getvalue(), stderr.getvalue()
+
+    def test_block_exits_with_blocked_code_and_suggests_headed(self) -> None:
+        code, stdout, stderr = self.run_blocked([URL])
+        self.assertEqual(code, dc.BLOCKED_EXIT_CODE)
+        self.assertEqual(stdout, "")
+        self.assertIn("Blocked by Cloudflare", stderr)
+        self.assertIn("--headed", stderr)
+
+    def test_block_while_headed_suggests_waiting(self) -> None:
+        code, _stdout, stderr = self.run_blocked([URL, "--headed"])
+        self.assertEqual(code, dc.BLOCKED_EXIT_CODE)
+        self.assertIn("Wait a few minutes", stderr)
+        self.assertNotIn("--headed", stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
