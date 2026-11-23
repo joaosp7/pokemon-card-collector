@@ -6,12 +6,14 @@ import { afterEach, describe, test } from "node:test";
 import { EXAMPLE_COLLECTION_URL } from "../lib/collection-url";
 import type { LigaEdition } from "../lib/edition-catalog";
 import {
+  BLOCKED_EXIT_CODE,
   handleAddCollection,
   repoRoot,
   resetDownloadLockForTests,
   startDownload,
   type SpawnFn,
 } from "../lib/download-collection";
+import { parseSseDone } from "../lib/download-sse";
 import { catalogProcessEnv } from "../lib/liga-editions";
 
 const CATALOG: LigaEdition[] = [
@@ -276,5 +278,127 @@ describe("handleAddCollection", () => {
     assert.equal(children.length, 2);
     children[1]?.emit("close", 0);
     await readBody(retry);
+  });
+
+  test("headed true passes --headed to the CLI", async () => {
+    const calls: readonly string[][] = [];
+    let child: FakeChild | undefined;
+    const spawnFn = ((_command: string, args: readonly string[]) => {
+      (calls as string[][]).push([...args]);
+      child = createFakeChild();
+      return child;
+    }) as unknown as SpawnFn;
+
+    const response = await handleAddCollection(
+      postJson({ url: EXAMPLE_COLLECTION_URL, headed: true }),
+      { spawn: spawnFn, editions: CATALOG },
+    );
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(calls[0], [
+      "run",
+      "download-collection",
+      EXAMPLE_COLLECTION_URL,
+      "--headed",
+    ]);
+    child?.emit("close", 0);
+    await readBody(response);
+  });
+
+  test("a non-boolean headed returns 400 and does not spawn", async () => {
+    let spawned = 0;
+    const spawnFn = (() => {
+      spawned += 1;
+      return createFakeChild();
+    }) as unknown as SpawnFn;
+
+    const response = await handleAddCollection(
+      postJson({ url: EXAMPLE_COLLECTION_URL, headed: "yes" }),
+      { spawn: spawnFn, editions: CATALOG },
+    );
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: "Invalid request." });
+    assert.equal(spawned, 0);
+  });
+
+  test("headed false does not pass --headed to the CLI", async () => {
+    const calls: string[][] = [];
+    let child: FakeChild | undefined;
+    const spawnFn = ((_command: string, args: readonly string[]) => {
+      calls.push([...args]);
+      child = createFakeChild();
+      return child;
+    }) as unknown as SpawnFn;
+
+    const response = await handleAddCollection(
+      postJson({ url: EXAMPLE_COLLECTION_URL, headed: false }),
+      { spawn: spawnFn, editions: CATALOG },
+    );
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(calls[0], ["run", "download-collection", EXAMPLE_COLLECTION_URL]);
+    child?.emit("close", 0);
+    await readBody(response);
+  });
+
+  test("blocked exit suggests the browser window", async () => {
+    let child: FakeChild | undefined;
+    const spawnFn = (() => {
+      child = createFakeChild();
+      return child;
+    }) as unknown as SpawnFn;
+
+    const response = await handleAddCollection(
+      postJson({ url: EXAMPLE_COLLECTION_URL }),
+      { spawn: spawnFn, editions: CATALOG },
+    );
+    child?.emit("close", BLOCKED_EXIT_CODE);
+
+    const body = await readBody(response);
+    const done = parseSseDone(body);
+    assert.ok(done && !done.ok);
+    assert.equal(done.reason, "blocked");
+    assert.match(done.error ?? "", /Show browser window/);
+  });
+
+  test("blocked exit while headed suggests waiting", async () => {
+    let child: FakeChild | undefined;
+    const spawnFn = (() => {
+      child = createFakeChild();
+      return child;
+    }) as unknown as SpawnFn;
+
+    const response = await handleAddCollection(
+      postJson({ url: EXAMPLE_COLLECTION_URL, headed: true }),
+      { spawn: spawnFn, editions: CATALOG },
+    );
+    child?.emit("close", BLOCKED_EXIT_CODE);
+
+    const body = await readBody(response);
+    const done = parseSseDone(body);
+    assert.ok(done && !done.ok);
+    assert.equal(done.reason, "blocked");
+    assert.match(done.error ?? "", /Wait a few minutes/);
+  });
+});
+
+describe("parseSseDone", () => {
+  test("extracts ok, error, and reason from done events", () => {
+    assert.deepEqual(parseSseDone('data: {"type":"done","ok":true}\n\n'), {
+      ok: true,
+    });
+    assert.deepEqual(
+      parseSseDone(
+        'data: {"type":"done","ok":false,"reason":"blocked","error":"Blocked"}\n\n',
+      ),
+      { ok: false, reason: "blocked", error: "Blocked" },
+    );
+    assert.deepEqual(
+      parseSseDone('data: {"type":"done","ok":false,"error":"Failed"}\n\n'),
+      { ok: false, reason: undefined, error: "Failed" },
+    );
+    assert.equal(parseSseDone('data: {"type":"log","text":"hi"}\n\n'), null);
+    assert.equal(parseSseDone("data: not-json\n\n"), null);
   });
 });

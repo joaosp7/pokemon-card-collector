@@ -785,5 +785,221 @@ class CatalogDownloadTests(unittest.TestCase):
                 self.assertFalse((root / "data" / "catalog.db").exists())
 
 
+class _FakePage:
+    def __init__(
+        self,
+        *,
+        title: str = "",
+        body_text: str = "",
+        catalog: list[dict[str, object]] | None = None,
+        sigla: str = "",
+        wait_error: Exception | None = None,
+    ) -> None:
+        self.title = title
+        self.body_text = body_text
+        self.catalog = list(catalog or [])
+        self.sigla = sigla
+        self.wait_error = wait_error
+        self.wait_calls: list[tuple[str, int]] = []
+        self.evaluate_calls: list[str] = []
+
+    def goto(self, url: str, *, wait_until: str, timeout: int) -> None:
+        self.url = url
+
+    def wait_for_function(self, js: str, *, timeout: int) -> None:
+        self.wait_calls.append((js, timeout))
+        if self.wait_error is not None:
+            raise self.wait_error
+
+    def evaluate(self, js: str) -> dict[str, object]:
+        self.evaluate_calls.append(js)
+        return {
+            "title": self.title,
+            "catalog": self.catalog,
+            "sigla": self.sigla,
+            "bodyText": self.body_text,
+        }
+
+
+class _FakeBrowser:
+    def __init__(self, page: _FakePage) -> None:
+        self.page = page
+        self.closed = False
+
+    def new_page(self) -> _FakePage:
+        return self.page
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakePlaywrightContext:
+    def __init__(self, page: _FakePage) -> None:
+        self.browser = _FakeBrowser(page)
+        self.headless_calls: list[bool] = []
+        self.chromium = self
+
+    def launch(self, *, headless: bool) -> _FakeBrowser:
+        self.headless_calls.append(headless)
+        return self.browser
+
+    def __enter__(self) -> _FakePlaywrightContext:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+
+class CloudflareBlockTests(unittest.TestCase):
+    def test_detects_block_page_title(self) -> None:
+        self.assertTrue(dc.is_cloudflare_block("Attention Required! | Cloudflare", ""))
+
+    def test_title_without_cloudflare_is_not_a_block(self) -> None:
+        self.assertFalse(dc.is_cloudflare_block("Attention Required", ""))
+
+    def test_detects_block_page_body(self) -> None:
+        body = "Sorry, you have been blocked\nYou are unable to access ligaturbo.com.br"
+        self.assertTrue(dc.is_cloudflare_block("", body))
+
+    def test_collection_page_is_not_a_block(self) -> None:
+        title = "Storm Emeralda | Liga Pokémon"
+        self.assertFalse(dc.is_cloudflare_block(title, "Mostrar mais"))
+
+    def test_detects_challenge_page(self) -> None:
+        self.assertTrue(dc.is_cloudflare_challenge("Just a moment...", ""))
+        self.assertTrue(dc.is_cloudflare_challenge("Um momento...", ""))
+        self.assertTrue(
+            dc.is_cloudflare_challenge(
+                "ligapokemon.com.br",
+                "Verify you are human by completing the action below. Performance & security by Cloudflare",
+            )
+        )
+        self.assertFalse(
+            dc.is_cloudflare_challenge("Storm Emeralda | Liga Pokémon", "Mostrar mais")
+        )
+
+    def test_wait_js_uses_block_predicate_and_not_challenge(self) -> None:
+        self.assertIn("Attention Required", dc.CATALOG_WAIT_JS)
+        self.assertIn("Cloudflare", dc.CATALOG_WAIT_JS)
+        self.assertIn("you have been blocked", dc.CATALOG_WAIT_JS)
+        self.assertNotIn("Just a moment", dc.CATALOG_WAIT_JS)
+
+    def _patch_playwright(self, page: _FakePage) -> tuple[mock._patch, _FakePlaywrightContext]:
+        ctx = _FakePlaywrightContext(page)
+        return mock.patch("playwright.sync_api.sync_playwright", return_value=ctx), ctx
+
+    def test_fetch_page_data_raises_on_block_title_without_timeout(self) -> None:
+        page = _FakePage(title="Attention Required! | Cloudflare", body_text="")
+        patcher, ctx = self._patch_playwright(page)
+        with patcher:
+            with self.assertRaises(dc.CloudflareBlockedError):
+                dc.fetch_page_data(URL)
+        self.assertTrue(ctx.browser.closed)
+        self.assertEqual(ctx.headless_calls, [True])
+        self.assertEqual(len(page.wait_calls), 1)
+        self.assertEqual(len(page.evaluate_calls), 1)
+
+    def test_fetch_page_data_raises_on_block_body_without_timeout(self) -> None:
+        page = _FakePage(
+            title="Access denied",
+            body_text="Sorry, you have been blocked\nYou are unable to access ligapokemon.com.br",
+        )
+        patcher, ctx = self._patch_playwright(page)
+        with patcher:
+            with self.assertRaises(dc.CloudflareBlockedError):
+                dc.fetch_page_data(URL)
+        self.assertTrue(ctx.browser.closed)
+
+    def test_fetch_page_data_normal_empty_catalog_exits_one(self) -> None:
+        page = _FakePage(title="Storm Emeralda | Liga Pokémon", body_text="Mostrar mais")
+        patcher, ctx = self._patch_playwright(page)
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with (
+            patcher,
+            mock.patch.object(dc, "urlopen", side_effect=AssertionError("image download")),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            code = dc.main([URL])
+        self.assertEqual(code, 1)
+        self.assertIn("No cards found in page catalog.", stderr.getvalue())
+        self.assertTrue(ctx.browser.closed)
+
+    def test_fetch_page_data_timeout_on_block_page_raises_block(self) -> None:
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+        page = _FakePage(
+            title="Access denied",
+            body_text="Sorry, you have been blocked",
+            wait_error=PlaywrightTimeoutError("Timeout 60000ms exceeded."),
+        )
+        patcher, ctx = self._patch_playwright(page)
+        with patcher:
+            with self.assertRaises(dc.CloudflareBlockedError):
+                dc.fetch_page_data(URL)
+        self.assertTrue(ctx.browser.closed)
+
+    def test_fetch_page_data_timeout_on_challenge_exits_blocked(self) -> None:
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+        page = _FakePage(
+            title="Just a moment...",
+            body_text="Checking if the site connection is secure",
+            wait_error=PlaywrightTimeoutError("Timeout 60000ms exceeded."),
+        )
+        patcher, ctx = self._patch_playwright(page)
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with (
+            patcher,
+            mock.patch.object(dc, "urlopen", side_effect=AssertionError("image download")),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            code = dc.main([URL])
+        self.assertEqual(code, dc.BLOCKED_EXIT_CODE)
+        self.assertIn("--headed", stderr.getvalue())
+        self.assertTrue(ctx.browser.closed)
+
+    def test_fetch_page_data_timeout_on_normal_page_reraises_timeout(self) -> None:
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+        page = _FakePage(
+            title="Storm Emeralda | Liga Pokémon",
+            body_text="Carregando...",
+            wait_error=PlaywrightTimeoutError("Timeout 60000ms exceeded."),
+        )
+        patcher, ctx = self._patch_playwright(page)
+        with patcher:
+            with self.assertRaises(PlaywrightTimeoutError):
+                dc.fetch_page_data(URL)
+        self.assertTrue(ctx.browser.closed)
+
+    def run_blocked(self, argv: list[str]) -> tuple[int, str, str]:
+        page = _FakePage(title="Attention Required! | Cloudflare", body_text="")
+        patcher, _ctx = self._patch_playwright(page)
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with (
+            patcher,
+            mock.patch.object(dc, "urlopen", side_effect=AssertionError("image download")),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            code = dc.main(argv)
+        return code, stdout.getvalue(), stderr.getvalue()
+
+    def test_block_exits_with_blocked_code_and_suggests_headed(self) -> None:
+        code, stdout, stderr = self.run_blocked([URL])
+        self.assertEqual(code, dc.BLOCKED_EXIT_CODE)
+        self.assertEqual(stdout, "")
+        self.assertIn("Blocked by Cloudflare", stderr)
+        self.assertIn("--headed", stderr)
+
+    def test_block_while_headed_suggests_waiting(self) -> None:
+        code, _stdout, stderr = self.run_blocked([URL, "--headed"])
+        self.assertEqual(code, dc.BLOCKED_EXIT_CODE)
+        self.assertIn("Wait a few minutes", stderr)
+        self.assertNotIn("--headed", stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

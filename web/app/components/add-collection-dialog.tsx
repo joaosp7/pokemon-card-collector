@@ -10,6 +10,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
+import { parseSseDone } from "@/lib/download-sse";
 import {
   editionLabel,
   filterEditions,
@@ -39,6 +40,7 @@ export function AddCollectionDialog() {
   const [loadingCatalog, setLoadingCatalog] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [headed, setHeaded] = useState(false);
 
   const filtered = useMemo(
     () => filterEditions(editions, query),
@@ -182,7 +184,7 @@ export function AddCollectionDialog() {
       const response = await fetch("/api/collections", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: chosen.url }),
+        body: JSON.stringify({ url: chosen.url, headed }),
       });
 
       if (response.status === 400 || response.status === 409) {
@@ -264,6 +266,9 @@ export function AddCollectionDialog() {
         result = done.ok;
         if (!done.ok) {
           setError(done.error ?? FAIL_MESSAGE);
+          if (done.reason === "blocked") {
+            setHeaded(true);
+          }
           setBusyState(null);
         }
       }
@@ -421,6 +426,20 @@ export function AddCollectionDialog() {
                   </ul>
                 ) : null}
               </div>
+              <label className="add-collection-headed">
+                <input
+                  type="checkbox"
+                  checked={headed}
+                  disabled={running}
+                  onChange={(event) => setHeaded(event.target.checked)}
+                />
+                <span>
+                  Show browser window
+                  <span className="add-collection-headed-hint">
+                    Use when Cloudflare blocks the download.
+                  </span>
+                </span>
+              </label>
               <div className="add-collection-actions">
                 <button
                   type="submit"
@@ -494,43 +513,4 @@ async function readErrorMessage(response: Response, fallback = FAIL_MESSAGE) {
     | { error?: unknown }
     | null;
   return typeof payload?.error === "string" ? payload.error : fallback;
-}
-
-function parseSseDone(
-  frame: string,
-): { ok: true } | { ok: false; error?: string } | null {
-  let done: { ok: true } | { ok: false; error?: string } | null = null;
-
-  for (const line of frame.split("\n")) {
-    if (!line.startsWith("data:")) {
-      continue;
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line.slice("data:".length).trim());
-    } catch {
-      continue;
-    }
-    if (!parsed || typeof parsed !== "object") {
-      continue;
-    }
-    const event = parsed as {
-      type?: unknown;
-      ok?: unknown;
-      error?: unknown;
-    };
-    if (event.type !== "done") {
-      continue;
-    }
-    if (event.ok === true) {
-      done = { ok: true };
-    } else if (event.ok === false) {
-      done = {
-        ok: false,
-        error: typeof event.error === "string" ? event.error : undefined,
-      };
-    }
-  }
-
-  return done;
 }

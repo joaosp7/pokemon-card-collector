@@ -376,6 +376,32 @@ a:hover .emblem {
   opacity: 0.55;
 }
 
+.add-collection-headed {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  font-family: var(--font-plex), ui-monospace, monospace;
+  font-size: 0.75rem;
+  color: var(--ink-pocket);
+  cursor: pointer;
+}
+
+.add-collection-headed:has(input:disabled) {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.add-collection-headed input {
+  margin-top: 0.15rem;
+  accent-color: var(--ink-pocket);
+}
+
+.add-collection-headed-hint {
+  display: block;
+  opacity: 0.7;
+}
+
 .add-collection-actions {
   display: flex;
   flex-wrap: wrap;
