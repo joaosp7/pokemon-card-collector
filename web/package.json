@@ -29,7 +29,5 @@
     "tsx": "^4.23.15",
     "typescript": "^5"
   },
-  "allowScripts": {
-    "better-sqlite3@13.0.3": true
-  }
+  "packageManager": "pnpm@11.9.0"
 }

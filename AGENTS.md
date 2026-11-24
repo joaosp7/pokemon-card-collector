@@ -92,7 +92,7 @@ Re-running either command does not duplicate sets, cards, or quantities. After t
 
 ```bash
 uv run python -m unittest discover -s tests -v
-cd web && npm test
+cd web && pnpm test
 ```
 
 Do not hit Liga Pokémon from tests. Fixture the `cardsjson` shape and assert folder slugs, filenames, sort order, skip-existing, and catalog upserts.
@@ -100,8 +100,12 @@ Do not hit Liga Pokémon from tests. Fixture the `cardsjson` shape and assert fo
 ## Cursor Cloud specific instructions
 
 - Use `uv`, not system `python3`. This image's `python3` is 3.12; the project requires 3.14 from `.python-version`. `uv` and `download-collection` are linked on `/usr/local/bin`. Playwright Chromium is installed for the downloader.
-- On boot, `start` runs `npm run dev` from `web/` on port 3000 (http://localhost:3000). If something is already listening there, the script leaves it running.
-- Documented checks are `uv run python -m unittest discover -s tests -v` and `cd web && npm test`. They do not contact Liga Pokémon. `npm run lint` and `npm run build` currently fail on existing source errors (a `useDb` helper that ESLint treats as a React hook, and TypeScript errors in layout and spawn types).
+- On boot, `start` runs `pnpm dev` from `web/` on port 3000 (http://localhost:3000). If something is already listening there, the script leaves it running.
+- Documented checks are `uv run python -m unittest discover -s tests -v` and `cd web && pnpm test`. They do not contact Liga Pokémon. `pnpm lint` currently fails on existing source errors (a `useDb` helper that ESLint treats as a React hook). `pnpm build` passes because `web/next.config.ts` sets `typescript.ignoreBuildErrors: true`, but `tsc --noEmit` still fails on the existing TypeScript errors (layout/actions and spawn types).
+
+## Package manager (web/)
+
+The web app uses pnpm. `web/package.json` pins `packageManager: pnpm@11.9.0` (use corepack) and the lockfile is `web/pnpm-lock.yaml`; do not reintroduce `package-lock.json`. Install with `cd web && pnpm install --frozen-lockfile`, then `pnpm test` / `pnpm build`. Dependency build scripts are blocked (`web/pnpm-workspace.yaml`, `allowBuilds: false`); the native binaries ship prebuilt. Deploy docs: `deploy/README.md`.
 
 ## Agent notes
 
@@ -115,7 +119,7 @@ Do not hit Liga Pokémon from tests. Fixture the `cardsjson` shape and assert fo
 Local Next.js binder. Home header can trigger `download-collection` via POST `/api/collections` (URL only; no scrape in Next.js). The CLI still owns fetching (Playwright + CDN). The app must not scrape `.card-item` or parse `cardsjson`. It must not derive card metadata from filenames.
 
 ```bash
-cd web && npm run dev
+cd web && pnpm dev
 ```
 
 Open http://localhost:3000.

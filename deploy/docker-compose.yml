@@ -1,0 +1,23 @@
+services:
+  app:
+    image: ghcr.io/joaosp7/pokemon-card-collector:${IMAGE_TAG:?IMAGE_TAG precisa estar definido (o deploy o grava em ~/app/.env)}
+    restart: unless-stopped
+    # .env guarda IMAGE_TAG (gravado pelo deploy). O app nao le variaveis proprias hoje.
+    env_file:
+      - path: .env
+        required: false
+    # Porta publicada SOMENTE no loopback do host. O acesso e feito pelo
+    # `tailscale serve` rodando no host (ver deploy/README.md).
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      # Bancos SQLite (catalog.db, ownership.db) e imagens das cartas ficam no host.
+      # Pastas devem pertencer ao uid 1000 (usuario "node" do container).
+      - ./data:/app/data
+      - ./cards:/app/cards
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s

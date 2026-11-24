@@ -1,0 +1,9 @@
+# Lifecycle scripts de dependencias sao bloqueados por padrao no pnpm.
+# Nenhuma precisa rodar: os binarios nativos vem prontos.
+#  - better-sqlite3: prebuilds/ (linux-x64 etc.) ja esta no pacote; o script
+#    de install seria `node-gyp rebuild` (exigiria python/g++).
+#  - esbuild, unrs-resolver: binarios vem por pacotes opcionais por plataforma.
+allowBuilds:
+  better-sqlite3: false
+  esbuild: false
+  unrs-resolver: false

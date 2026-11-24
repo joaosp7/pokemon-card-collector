@@ -28,3 +28,5 @@ web/data/*
 
 
 .specs/
+# Deploy secrets
+deploy/.env
