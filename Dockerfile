@@ -2,19 +2,27 @@
 # Imagem Debian (slim), nao alpine: better-sqlite3 e sharp usam binarios nativos glibc.
 ARG NODE_VERSION=24
 
-FROM node:${NODE_VERSION}-slim AS deps
-WORKDIR /build/web
-COPY web/package.json web/package-lock.json ./
-# better-sqlite3 traz binarios pre-compilados em prebuilds/ (linux-x64 glibc incluso);
-# --ignore-scripts evita o `node-gyp rebuild` (que exigiria python/g++ na imagem).
-RUN npm ci --ignore-scripts
+FROM node:${NODE_VERSION}-slim AS base
+# Mantenha a versao igual a "packageManager" em web/package.json.
+ENV PNPM_HOME=/pnpm-store-bin \
+    PATH=/pnpm-store-bin:$PATH
+RUN corepack enable && corepack prepare pnpm@11.9.0 --activate
 
-FROM node:${NODE_VERSION}-slim AS builder
+FROM base AS deps
+WORKDIR /build/web
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
+# Nenhum build script de dependencia roda (ver web/pnpm-workspace.yaml): o
+# better-sqlite3 traz o binario pre-compilado em prebuilds/ (linux-x64 glibc),
+# entao nao precisa de python/g++ na imagem.
+RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
+
+FROM base AS builder
 WORKDIR /build/web
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /build/web/node_modules ./node_modules
 COPY web/ ./
-RUN npm run build
+RUN pnpm build
 
 FROM node:${NODE_VERSION}-slim AS runner
 ENV NODE_ENV=production \

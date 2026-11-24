@@ -25,6 +25,14 @@ execucao (`CREATE TABLE IF NOT EXISTS`); **nao ha migrations** e por isso nao ex
 Limitacao: o botao de download de colecoes chama `uv run download-collection` (Python + Playwright),
 que **nao esta na imagem**. Em producao, popule `data/` e `cards/` a partir da sua maquina (veja abaixo).
 
+## Gerenciador de pacotes: pnpm
+
+O projeto usa pnpm (versao fixada em `web/package.json` > `packageManager`, atualmente `pnpm@11.9.0`;
+a mesma versao esta no `Dockerfile`, via corepack). O lockfile e `web/pnpm-lock.yaml`.
+O pnpm bloqueia scripts de build de dependencias; `web/pnpm-workspace.yaml` mantem todos desativados
+(`allowBuilds: false`) porque os binarios nativos ja vem prontos (`better-sqlite3` em `prebuilds/`,
+`esbuild`/`unrs-resolver` por pacotes opcionais). Ao atualizar o pnpm, altere `packageManager` e o `Dockerfile` juntos.
+
 ## Pre-requisitos
 
 - Instancia Lightsail Ubuntu 24.04 (x86_64, 1 GB RAM), IP estatico anexado.
