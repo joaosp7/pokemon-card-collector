@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Opcional (rollback): SHA/tag ja publicada no GHCR para implantar, sem novo build"
+        required: false
+        default: ""
 
 concurrency:
   group: deploy
@@ -14,6 +19,7 @@ env:
 
 jobs:
   build:
+    if: ${{ inputs.image_tag == '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -39,18 +45,30 @@ jobs:
 
   deploy:
     needs: build
+    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
 
+      - name: Resolve image tag
+        env:
+          INPUT_TAG: ${{ inputs.image_tag }}
+        run: |
+          tag="${INPUT_TAG:-$GITHUB_SHA}"
+          if ! printf '%s' "$tag" | grep -Eq '^[A-Za-z0-9_.-]{1,128}$'; then
+            echo "image_tag invalida" >&2; exit 1
+          fi
+          echo "IMAGE_TAG=$tag" >> "$GITHUB_ENV"
+
       - name: Connect to Tailscale
-        uses: tailscale/github-action@v3
+        uses: tailscale/github-action@v4.4.0
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
+          ping: ${{ secrets.DEPLOY_HOST }}
 
       - name: Configure SSH
         env:
@@ -60,17 +78,25 @@ jobs:
           install -m 700 -d ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
-          ssh-keyscan -T 10 "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+          for i in 1 2 3 4 5; do
+            ssh-keyscan -T 10 "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null && [ -s ~/.ssh/known_hosts ] && break
+            echo "ssh-keyscan tentativa $i falhou"; sleep 5
+          done
+          [ -s ~/.ssh/known_hosts ]
 
       - name: Copy deploy files
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
-          ssh -i ~/.ssh/id_deploy "$DEPLOY_USER@$DEPLOY_HOST" 'mkdir -p ~/app'
-          scp -i ~/.ssh/id_deploy deploy/docker-compose.yml deploy/Caddyfile "$DEPLOY_USER@$DEPLOY_HOST:app/"
+          for i in 1 2 3 4 5; do
+            ssh -i ~/.ssh/id_deploy -o ConnectTimeout=10 "$DEPLOY_USER@$DEPLOY_HOST" 'mkdir -p ~/app' && break
+            [ "$i" = 5 ] && exit 1
+            echo "ssh tentativa $i falhou"; sleep 5
+          done
+          scp -i ~/.ssh/id_deploy deploy/docker-compose.yml deploy/remote-deploy.sh "$DEPLOY_USER@$DEPLOY_HOST:app/"
 
-      - name: Pull and restart
+      - name: Deploy (com healthcheck e rollback automatico)
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
@@ -78,5 +104,5 @@ jobs:
           GHCR_USER: ${{ github.repository_owner }}
         run: |
           # O token vai por stdin (nao aparece na linha de comando do servidor).
-          printf '%s' "$GHCR_PULL_TOKEN" | ssh -i ~/.ssh/id_deploy "$DEPLOY_USER@$DEPLOY_HOST" \
-            "set -e; cd ~/app; docker login ghcr.io -u '$GHCR_USER' --password-stdin; docker compose pull; docker compose up -d; docker image prune -f"
+          printf '%s\n' "$GHCR_PULL_TOKEN" | ssh -i ~/.ssh/id_deploy "$DEPLOY_USER@$DEPLOY_HOST" \
+            "bash ~/app/remote-deploy.sh '$IMAGE_TAG' '$GHCR_USER'"

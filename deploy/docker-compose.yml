@@ -2,7 +2,14 @@ services:
   app:
     image: ghcr.io/joaosp7/pokemon-card-collector:${IMAGE_TAG:-latest}
     restart: unless-stopped
-    env_file: .env
+    # .env e opcional (o app nao le variaveis proprias hoje).
+    env_file:
+      - path: .env
+        required: false
+    # Porta publicada SOMENTE no loopback do host. O acesso e feito pelo
+    # `tailscale serve` rodando no host (ver deploy/README.md).
+    ports:
+      - "127.0.0.1:3000:3000"
     volumes:
       # Bancos SQLite (catalog.db, ownership.db) e imagens das cartas ficam no host.
       # Pastas devem pertencer ao uid 1000 (usuario "node" do container).
@@ -10,30 +17,7 @@ services:
       - ./cards:/app/cards
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"]
-      interval: 30s
+      interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 5
       start_period: 20s
-    expose:
-      - "3000"
-
-  caddy:
-    image: caddy:2
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    environment:
-      DOMAIN: ${DOMAIN:?defina DOMAIN no .env}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      app:
-        condition: service_healthy
-
-volumes:
-  caddy_data:
-  caddy_config:
