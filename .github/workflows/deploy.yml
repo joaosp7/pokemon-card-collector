@@ -38,7 +38,6 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -70,31 +69,24 @@ jobs:
           tags: tag:ci
           ping: ${{ secrets.DEPLOY_HOST }}
 
-      - name: Configure SSH
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-        run: |
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_deploy
-          chmod 600 ~/.ssh/id_deploy
-          for i in 1 2 3 4 5; do
-            ssh-keyscan -T 10 "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null && [ -s ~/.ssh/known_hosts ] && break
-            echo "ssh-keyscan tentativa $i falhou"; sleep 5
-          done
-          [ -s ~/.ssh/known_hosts ]
-
+      # Tailscale SSH: sem chave privada. A autenticacao e a ACL "ssh" da tailnet
+      # (src tag:ci -> dst tag:server). A identidade do host ja e garantida pelo
+      # tunel WireGuard, entao nao usamos known_hosts.
       - name: Copy deploy files
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
+          SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10)
           for i in 1 2 3 4 5; do
-            ssh -i ~/.ssh/id_deploy -o ConnectTimeout=10 "$DEPLOY_USER@$DEPLOY_HOST" 'mkdir -p ~/app' && break
+            # tar via ssh (nao depende de scp/sftp no Tailscale SSH)
+            if tar -C deploy -cf - docker-compose.yml remote-deploy.sh \
+              | ssh "${SSH_OPTS[@]}" "$DEPLOY_USER@$DEPLOY_HOST" 'mkdir -p ~/app && tar -C ~/app -xf -'; then
+              break
+            fi
             [ "$i" = 5 ] && exit 1
             echo "ssh tentativa $i falhou"; sleep 5
           done
-          scp -i ~/.ssh/id_deploy deploy/docker-compose.yml deploy/remote-deploy.sh "$DEPLOY_USER@$DEPLOY_HOST:app/"
 
       - name: Deploy (com healthcheck e rollback automatico)
         env:
@@ -103,6 +95,9 @@ jobs:
           GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
           GHCR_USER: ${{ github.repository_owner }}
         run: |
+          SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10)
+          # IMAGE_TAG (SHA/tag validada) e GHCR_USER expandem no cliente de proposito.
+          # shellcheck disable=SC2029
           # O token vai por stdin (nao aparece na linha de comando do servidor).
-          printf '%s\n' "$GHCR_PULL_TOKEN" | ssh -i ~/.ssh/id_deploy "$DEPLOY_USER@$DEPLOY_HOST" \
+          printf '%s\n' "$GHCR_PULL_TOKEN" | ssh "${SSH_OPTS[@]}" "$DEPLOY_USER@$DEPLOY_HOST" \
             "bash ~/app/remote-deploy.sh '$IMAGE_TAG' '$GHCR_USER'"

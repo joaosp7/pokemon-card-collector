@@ -69,8 +69,8 @@ Re-running either command does not duplicate sets, cards, or quantities. After t
 
 ```bash
 cd web
-npm install
-npm run dev
+pnpm install --frozen-lockfile
+pnpm dev
 ```
 
 Open http://localhost:3000. Home lists sets from `catalog.db`. Use Add Collection on the home header with a Liga search URL, or run the CLI in a terminal. Open a set to add or remove copies and filter All / Missing / Owned. Copy changes are written only to `data/ownership.db`.
@@ -79,7 +79,7 @@ Open http://localhost:3000. Home lists sets from `catalog.db`. Use Add Collectio
 
 ```bash
 uv run python -m unittest discover -s tests -v
-cd web && npm test
+cd web && pnpm test
 ```
 
 Tests use fixtures and temporary databases. They do not contact Liga Pokémon.

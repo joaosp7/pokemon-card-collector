@@ -17,6 +17,17 @@ if [ "$(stat -c %u data)" != "1000" ] || [ "$(stat -c %u cards)" != "1000" ]; th
   sudo -n chown -R 1000:1000 data cards
 fi
 
+# Persiste a tag em ~/app/.env (IMAGE_TAG=...) para que `docker compose up/restart`
+# manual ou um reboot nunca subam uma imagem diferente da validada.
+persist_tag() {
+  touch .env
+  grep -v '^IMAGE_TAG=' .env > .env.tmp || true
+  printf 'IMAGE_TAG=%s\n' "$1" >> .env.tmp
+  mv .env.tmp .env
+  chmod 600 .env
+  echo "$1" > .current_tag
+}
+
 PREV_TAG=""
 if [ -f .current_tag ]; then
   PREV_TAG="$(cat .current_tag)"
@@ -33,13 +44,16 @@ if ! docker compose up -d --wait --wait-timeout "$WAIT_TIMEOUT" app; then
   docker compose logs --tail 50 app || true
   if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$NEW_TAG" ]; then
     echo "Rollback para $PREV_TAG"
-    IMAGE_TAG="$PREV_TAG" docker compose up -d --wait --wait-timeout "$WAIT_TIMEOUT" app \
-      || echo "ATENCAO: rollback para $PREV_TAG tambem falhou"
+    if IMAGE_TAG="$PREV_TAG" docker compose up -d --wait --wait-timeout "$WAIT_TIMEOUT" app; then
+      persist_tag "$PREV_TAG"
+    else
+      echo "ATENCAO: rollback para $PREV_TAG tambem falhou"
+    fi
   fi
   exit 1
 fi
 
-echo "$NEW_TAG" > .current_tag
+persist_tag "$NEW_TAG"
 
 # Limpeza: mantem a tag em execucao e a anterior (rollback rapido); remove o resto.
 docker image ls "$IMAGE" --format '{{.Tag}}' | sort -u | while read -r tag; do

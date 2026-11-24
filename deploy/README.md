@@ -4,8 +4,8 @@ Arquitetura: **o app nao tem nenhuma porta publica e nao tem autenticacao propri
 acessivel pela tailnet (Tailscale).
 
 ```
-push na main -> GitHub Actions builda a imagem (linux/amd64) -> GHCR (tags latest e SHA)
-             -> runner entra na tailnet (tag:ci) -> SSH na instancia (tag:server)
+push na main -> GitHub Actions builda a imagem (linux/amd64) -> GHCR (tag = SHA do commit)
+             -> runner entra na tailnet (tag:ci) -> Tailscale SSH na instancia (tag:server)
              -> remote-deploy.sh: pull da SHA, `compose up --wait`, rollback automatico se falhar
 
 instancia: container app (127.0.0.1:3000)  <-  tailscale serve (HTTPS :443, so tailnet)
@@ -47,19 +47,19 @@ Ao atualizar o pnpm, altere `packageManager` e o `Dockerfile` juntos.
 
 | Secret | Para que serve |
 | --- | --- |
-| `TS_OAUTH_CLIENT_ID` | OAuth client do Tailscale (escopo `auth_keys` write, tag `tag:ci`); o runner entra na tailnet |
+| `TS_OAUTH_CLIENT_ID` | OAuth client do Tailscale (escopo escopo `auth_keys` (write) com a tag `tag:ci`; nenhum outro escopo e necessario, o acesso SSH e controlado pela ACL); o runner entra na tailnet |
 | `TS_OAUTH_SECRET` | Segredo do mesmo OAuth client |
 | `DEPLOY_HOST` | Nome MagicDNS ou IP Tailscale (100.x) da instancia |
-| `DEPLOY_USER` | Usuario SSH na instancia (ex.: `ubuntu`) |
-| `DEPLOY_SSH_KEY` | Chave privada SSH (a publica vai em `~/.ssh/authorized_keys` da instancia) |
+| `DEPLOY_USER` | Usuario de login na instancia (ex.: `ubuntu`); precisa constar em `users` da regra `ssh` da ACL |
 | `GHCR_PULL_TOKEN` | PAT (classic) com `read:packages`, usado pela instancia para `docker login ghcr.io` |
 
+Sao 5 secrets. **Nao ha chave SSH**: o deploy usa Tailscale SSH (autenticacao pela identidade `tag:ci` na ACL).
 O push da imagem usa o `GITHUB_TOKEN` automatico. Nenhum segredo fica no repositorio.
 
 ## ACL da tailnet (exemplo)
 
-Ajuste `autogroup:member`/usuarios conforme o dono. `tag:ci` so entra na instancia por SSH;
-so os dispositivos do dono acessam o app na 443.
+Ajuste usuarios e o `users` (= `DEPLOY_USER`). `tag:ci` so entra na instancia por **Tailscale SSH**; so os
+dispositivos do dono acessam o app na 443.
 
 ```json
 {
@@ -68,14 +68,19 @@ so os dispositivos do dono acessam o app na 443.
     "tag:server": ["autogroup:admin"]
   },
   "acls": [
-    { "action": "accept", "src": ["tag:ci"],           "dst": ["tag:server:22"] },
     { "action": "accept", "src": ["dono@example.com"], "dst": ["tag:server:443"] }
+  ],
+  "ssh": [
+    { "action": "accept", "src": ["tag:ci"], "dst": ["tag:server"], "users": ["ubuntu"] },
+    { "action": "accept", "src": ["dono@example.com"], "dst": ["tag:server"], "users": ["ubuntu"] }
   ]
 }
 ```
 
-(Com `--ssh` ligado no servidor, e opcional adicionar uma regra em `"ssh"` das ACLs. O workflow usa
-SSH comum na porta 22 pela interface Tailscale, com a chave `DEPLOY_SSH_KEY`.)
+**Tailscale SSH e obrigatorio**: a instancia precisa rodar `tailscale up --ssh` (mantenha habilitado) e a
+regra `ssh` da ACL e **obrigatoria**; uma regra TCP na 22 sozinha nao basta (o Tailscale SSH intercepta a 22
+e ignora `~/.ssh/authorized_keys`). O workflow nao usa chave, `known_hosts` nem `scp`: envia os arquivos com
+`tar` via `ssh` (nao depende de SFTP/scp) e dispensa `ssh-keyscan` (a identidade do host vem do tunel WireGuard).
 
 ## Preparar a instancia (uma vez)
 
@@ -88,7 +93,7 @@ sudo usermod -aG docker $USER   # reconecte a sessao depois
 curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up --ssh --advertise-tags=tag:server
 
-# 3) Pasta do app (data/cards sao criadas e ajustadas a cada deploy)
+# 3) Pasta do app (data/cards e .env sao criados/ajustados a cada deploy)
 mkdir -p ~/app
 
 # 4) Expor o app SO na tailnet (HTTPS com certificado *.ts.net), uma vez:
@@ -122,7 +127,7 @@ ou um backup. De uma maquina assim (na tailnet):
 ssh user@HOST 'cd ~/app && docker compose stop app'
 rsync -av data/catalog.db data/ownership.db user@HOST:app/data/
 rsync -av cards/ user@HOST:app/cards/
-ssh user@HOST 'sudo chown -R 1000:1000 ~/app/data ~/app/cards && cd ~/app && docker compose up -d app'
+ssh user@HOST 'sudo chown -R 1000:1000 ~/app/data ~/app/cards && cd ~/app && docker compose up -d --wait app'
 ```
 
 Para restaurar de um backup, copie `catalog-AAAA-MM-DD.db` -> `data/catalog.db`, `ownership-...db` ->
@@ -131,11 +136,13 @@ Para restaurar de um backup, copie `catalog-AAAA-MM-DD.db` -> `data/catalog.db`,
 ## Deploy
 
 - Push na `main` ou `workflow_dispatch`: builda a imagem e implanta a **SHA do commit** (`IMAGE_TAG` e passado
-  no comando remoto; nao use `IMAGE_TAG` no `.env`).
+  no comando remoto e sobrepoe o `.env`).
 - `remote-deploy.sh` (copiado a cada deploy para `~/app`): registra a tag atual em `~/app/.current_tag`,
   faz `pull` da SHA nova, `docker compose up -d --wait --wait-timeout 120`. Se o healthcheck falhar, sobe de
-  novo a tag anterior, mostra `docker compose logs --tail 50 app` e **o job falha**. Em sucesso grava a nova
-  tag em `.current_tag`.
+  novo a tag anterior (regravada no `.env`), mostra `docker compose logs --tail 50 app` e **o job falha**. Em sucesso grava a nova
+  tag em `.current_tag` **e em `~/app/.env` (`IMAGE_TAG=<tag>`)**, assim `docker compose up/restart` manual ou reboot
+  sempre usam a imagem validada. O compose exige `IMAGE_TAG` (sem `:latest` padrao) e o build nao publica `:latest`.
+  Nao edite o `.env` a mao; para trocar a versao, rode o workflow.
 - Limpeza: ao final remove imagens antigas do app, **mantendo a tag em execucao e a anterior** (rollback
   manual rapido sem novo pull), mais `docker image prune -f`.
 

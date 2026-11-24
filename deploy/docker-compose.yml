@@ -1,8 +1,8 @@
 services:
   app:
-    image: ghcr.io/joaosp7/pokemon-card-collector:${IMAGE_TAG:-latest}
+    image: ghcr.io/joaosp7/pokemon-card-collector:${IMAGE_TAG:?IMAGE_TAG precisa estar definido (o deploy o grava em ~/app/.env)}
     restart: unless-stopped
-    # .env e opcional (o app nao le variaveis proprias hoje).
+    # .env guarda IMAGE_TAG (gravado pelo deploy). O app nao le variaveis proprias hoje.
     env_file:
       - path: .env
         required: false

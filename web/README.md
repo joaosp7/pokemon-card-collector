@@ -5,8 +5,8 @@ Next.js app for the local Liga Pokémon archive. It reads catalog metadata from 
 Run it from this directory:
 
 ```bash
-npm install
-npm run dev
+pnpm install --frozen-lockfile
+pnpm dev
 ```
 
 Open http://localhost:3000.
@@ -39,5 +39,7 @@ Run `migrate_collection.py` once per downloaded set, then `migrate_ownership.py`
 ## Tests
 
 ```bash
-npm test
+pnpm test
 ```
+
+O gerenciador de pacotes e o pnpm (`packageManager` fixa `pnpm@11.9.0`; lockfile `pnpm-lock.yaml`). Scripts de build de dependencias ficam desativados em `pnpm-workspace.yaml`.
